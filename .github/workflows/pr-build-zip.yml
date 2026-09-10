@@ -108,8 +108,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build ZIP and comment
+  gate:
+    name: Check trigger conditions
     # Skip drafts, but always run a manual dispatch. Skip fork PRs too: forks
     # never get repo secrets, so BOT_TOKEN/ARTIFACTS_* are unset and the job
     # would just fail loudly on the upload/comment steps.
@@ -117,6 +117,37 @@ jobs:
       github.event_name != 'pull_request' ||
       (github.event.pull_request.draft == false &&
        github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name)
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.decide.outputs.proceed }}
+    steps:
+      # Always build on open/reopen/ready-for-review (and non-PR triggers,
+      # e.g. workflow_dispatch) -- only a follow-up push needs the marker.
+      # Checked here, not as a job-level `if:`, since it needs the actual
+      # commit message, which isn't in the pull_request event payload.
+      - name: Decide whether to build
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ "${{ github.event_name != 'pull_request' || github.event.action != 'synchronize' }}" = "true" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          MESSAGE=$(gh api "repos/$REPO/commits/$SHA" --jq '.commit.message')
+          if echo "$MESSAGE" | grep -qi '#build-zip'; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping build -- commit message has no #build-zip. Push again with it in the message (or comment/reopen) to force a rebuild."
+          fi
+
+  build:
+    name: Build ZIP and comment
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     steps:
       # Explicit ref: without it, a pull_request event checks out GitHub's
@@ -285,6 +316,8 @@ jobs:
 
             Installs directly via **Plugins → Add New → Upload Plugin**.
             Link expires in ${{ inputs.retention-days }} days · updated ${{ steps.stamp.outputs.at }}
+
+            <sub>A later push only rebuilds this if its commit message includes `#build-zip`.</sub>
 
       - name: Run summary
         run: |
