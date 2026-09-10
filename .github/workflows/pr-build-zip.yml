@@ -317,6 +317,8 @@ jobs:
             Installs directly via **Plugins → Add New → Upload Plugin**.
             Link expires in ${{ inputs.retention-days }} days · updated ${{ steps.stamp.outputs.at }}
 
+            <sub>A later push only rebuilds this if its commit message includes `#build-zip`.</sub>
+
       - name: Run summary
         run: |
           {
