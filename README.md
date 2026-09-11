@@ -10,7 +10,7 @@ We use a machine user instead of a GitHub App because it keeps one identity acro
 |---|---|---|
 | **PR build-zip comment** — builds a plugin/theme zip on every ready-for-review PR, uploads it, and posts/updates one comment with a direct download link | `.github/workflows/pr-build-zip.yml` + `.caller.yml` | [SETUP.md](SETUP.md) |
 | **PR review automation** — requests Copilot as a reviewer when a PR opens, and lets team members trigger a Copilot code review by commenting a trigger phrase | `.github/workflows/copilot-review-on-comment.yml` + `.caller.yml` | inline comments in the workflow file |
-| **Crisp → AI → GitHub issue** — hourly pipeline that reads resolved (and some still-open) Crisp support conversations, classifies whether they describe a real bug/feature, and either files a GitHub issue, comments on an existing one, or leaves a note back in the Crisp conversation | `.github/workflows/crisp-triage.yml`, `scripts/`, `prompts/`, `config/`, `state/` | [PHASE2-SETUP.md](PHASE2-SETUP.md) |
+| **Crisp → AI → GitHub issue** — scheduled pipeline over Crisp support conversations. A resolved conversation is trusted as fully handled by support and is never classified on its own; investigation only happens on a manual `!tg-autopilot investigate` note, a conversation reopening after being resolved (just the new part), or a stale conversation that was never resolved at all. See § 4c for the full policy | `.github/workflows/crisp-triage.yml`, `scripts/`, `prompts/`, `config/`, `state/` | [PHASE2-SETUP.md § 4c](PHASE2-SETUP.md#4c-what-actually-triggers-a-full-investigation) |
 
 ## Maintainer skills
 

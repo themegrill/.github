@@ -1,18 +1,22 @@
 #!/usr/bin/env node
-// Stage 1 of the Crisp -> AI -> GitHub issue pipeline: fetches conversations
-// resolved since the last run, maps each to a repo, and classifies each with
-// one cheap, tool-less model call. Most conversations aren't actionable and
-// stop here.
+// Stage 1 of the Crisp -> AI -> GitHub issue pipeline.
 //
-// Also escalates a still-open conversation to full investigation without
-// waiting for it to resolve -- see PHASE2-SETUP.md § 4c for the full policy
-// (manual "!tg-autopilot investigate" note, or auto-escalation after
-// AUTO_ESCALATE_HOURS with an upper bound so an old backlog isn't blindly
-// swept in).
+// Policy: a resolved conversation is trusted as fully handled by support --
+// resolving it (first time or Nth time) never triggers investigation on its
+// own. The only way a previously-resolved conversation gets investigated is
+// if it reopens (goes active again) before its next resolve; the resolved-
+// conversation loop below only records "seen resolved at T", and the
+// active-conversation loop investigates a reopen using messages after T. If
+// it gets resolved again before we ever see it active in between, it's
+// never investigated at all -- that falls out naturally from this loop
+// always just re-recording the (later) resolve time, no special-casing
+// needed. See PHASE2-SETUP.md § 4c for the auto-escalation policy for
+// conversations that were never resolved in the first place, and the manual
+// "!tg-autopilot investigate" note, which always overrides all of this.
 //
-// Writes matrix.json (Stage 2's input), state/cursor.json, and
-// state/escalated.json (per-session bookkeeping so neither escalation path
-// repeats itself).
+// Writes matrix.json (Stage 2's input), state/cursor.json,
+// state/escalated.json, and state/resolved-seen.json (per-session
+// bookkeeping so none of the above repeats itself).
 //
 // Provider: OpenAI, swappable freely. Verify CLASSIFY_MODEL against your
 // account before relying on it.
@@ -31,6 +35,13 @@ const { GITHUB_STEP_SUMMARY } = process.env;
 const AUTO_ESCALATE_HOURS = 12;
 const AUTO_ESCALATE_MAX_HOURS = 24 * 30; // past this, only a manual note escalates it
 
+function transcriptFrom(messages) {
+  return messages
+    .filter((m) => m.type === "text")
+    .map((m) => `${m.from === "user" ? "Customer" : "Agent"}: ${m.content}`)
+    .join("\n");
+}
+
 async function main() {
   const runStartedAt = new Date().toISOString();
   const cursor = JSON.parse(await readFile("state/cursor.json", "utf8"));
@@ -48,14 +59,17 @@ async function main() {
   const investigated = new Set(
     JSON.parse(await readFile("state/investigated.json", "utf8").catch(() => "[]"))
   );
+  // { [session_id]: <ms timestamp of the last time we saw it resolved> } --
+  // the only signal that lets the active loop below recognize a reopen.
+  const resolvedSeen = JSON.parse(await readFile("state/resolved-seen.json", "utf8").catch(() => "{}"));
 
   const matrix = [];
   const skippedUnmapped = [];
   let alreadyHandled = 0;
-  let alreadyInvestigated = 0;
   let totalFetched = 0;
   let manualEscalations = 0;
   let autoEscalations = 0;
+  let reopenEscalations = 0;
 
   // Each Crisp account (different logins) is fetched/classified independently;
   // one not yet credentialed is skipped with a warning, not a crash.
@@ -68,7 +82,8 @@ async function main() {
       continue;
     }
 
-    // ---- Resolved conversations: the full pipeline, as before ----
+    // ---- Resolved conversations: record as seen, never investigate here ----
+    // except for an explicit manual note, which always overrides the policy.
     const conversations = await fetchResolvedConversationsSince(creds, cursor.last_checked);
     totalFetched += conversations.length;
     console.log(`[${accountKey}] fetched ${conversations.length} resolved conversations since ${cursor.last_checked}`);
@@ -82,61 +97,42 @@ async function main() {
       // Fetch raw messages (not just the transcript) so a manual note can be
       // counted below without a second Crisp call.
       const messages = await fetchRawMessages(creds, conversation.session_id);
-      const transcript = messages
-        .filter((m) => m.type === "text")
-        .map((m) => `${m.from === "user" ? "Customer" : "Agent"}: ${m.content}`)
-        .join("\n");
-      if (!transcript.trim()) continue;
+      const transcript = transcriptFrom(messages);
 
-      // A manual note always overrides the cheap classifier and the
-      // investigated guard. Needed here too (not just in the active loop
-      // below) since a conversation that resolved before its note was ever
-      // checked would otherwise silently skip the human's explicit request.
-      const record = escalated[conversation.session_id] ?? { autoEscalated: false, manualNoteCount: 0 };
-      const manualNoteCount = countManualTriggerNotes(messages);
-      const hasNewManualNote = manualNoteCount > record.manualNoteCount;
+      if (transcript.trim()) {
+        const record = escalated[conversation.session_id] ?? { autoEscalated: false, manualNoteCount: 0 };
+        const manualNoteCount = countManualTriggerNotes(messages);
+        const hasNewManualNote = manualNoteCount > record.manualNoteCount;
 
-      if (hasNewManualNote) {
-        const result = await classifyAndRoute(accountConfig, conversation, transcript, { skipClassifier: true });
-        record.manualNoteCount = manualNoteCount;
-        escalated[conversation.session_id] = record;
-        if (result.repo) {
-          matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
-          investigated.add(conversation.session_id);
-          manualEscalations++;
-          console.log(`[${accountKey}] ${conversation.session_id}: manual "!tg-autopilot investigate" note -> escalated to ${result.repo}`);
-        } else {
-          skippedUnmapped.push({ account: accountKey, session_id: conversation.session_id, inboxKey: result.unmappedKey });
+        if (hasNewManualNote) {
+          const result = await classifyAndRoute(accountConfig, conversation, transcript, { skipClassifier: true });
+          record.manualNoteCount = manualNoteCount;
+          escalated[conversation.session_id] = record;
+          if (result.repo) {
+            matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
+            investigated.add(conversation.session_id);
+            manualEscalations++;
+            console.log(`[${accountKey}] ${conversation.session_id}: manual "!tg-autopilot investigate" note -> escalated to ${result.repo}`);
+          } else {
+            skippedUnmapped.push({ account: accountKey, session_id: conversation.session_id, inboxKey: result.unmappedKey });
+          }
         }
-        continue;
       }
 
-      if (investigated.has(conversation.session_id)) {
-        alreadyInvestigated++;
-        continue;
-      }
-
-      const result = await classifyAndRoute(accountConfig, conversation, transcript);
-      if (!result.repo) {
-        skippedUnmapped.push({ account: accountKey, session_id: conversation.session_id, inboxKey: result.unmappedKey });
-        continue;
-      }
-
-      console.log(`[${accountKey}] ${conversation.session_id}: actionable=${result.actionable} kind=${result.kind} repo=${result.repo}`);
-
-      if (result.actionable && result.kind !== "none") {
-        matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
-        investigated.add(conversation.session_id);
-      }
+      // Record every resolved conversation as seen, regardless of the
+      // manual-note branch above -- a later reopen is measured from
+      // whichever resolve happened most recently.
+      resolvedSeen[conversation.session_id] = conversation.updated_at ?? Date.now();
     }
 
-    // ---- Active conversations: manual-note and time-based escalation ----
+    // ---- Active conversations: manual note, reopen, and time-based escalation ----
     // Independent of crisp-dedupe-active.mjs, which skips anything that
     // ends up in matrix.json this run.
     //
     // Only fetch messages for conversations touched since cursor.last_checked
     // (adding a note is itself an update) -- cheaper than fetching every
-    // active conversation's history. Staleness needs no message fetch at all.
+    // active conversation's history. Staleness/reopen detection need no
+    // message fetch at all.
     const lastCheckedMs = new Date(cursor.last_checked).getTime();
     const activeConversations = await fetchActiveConversations(creds);
     activeConversations.forEach((conversation) => {
@@ -159,6 +155,7 @@ async function main() {
 
     for (const conversation of activeConversations) {
       const record = escalated[conversation.session_id] ?? { autoEscalated: false, manualNoteCount: 0 };
+      const previousResolveAt = resolvedSeen[conversation.session_id];
 
       // active.last, not created_at: a reopened thread gets a fresh grace
       // period rather than reading as ancient. Pure metadata, no message fetch.
@@ -170,18 +167,27 @@ async function main() {
         staleHours >= AUTO_ESCALATE_HOURS &&
         staleHours <= AUTO_ESCALATE_MAX_HOURS;
 
-      if (!conversation._checkManualNote && !eligibleForAutoEscalate) continue;
+      // Previously seen resolved, now active again -- a reopen. Checked
+      // regardless of staleness/manual note: if it resolves again before we
+      // ever catch it here, the resolved-conversation loop above just
+      // records the later resolve time and this never fires for that gap.
+      const isReopen = previousResolveAt !== undefined;
+
+      if (!conversation._checkManualNote && !eligibleForAutoEscalate && !isReopen) continue;
 
       const messages = await fetchRawMessages(creds, conversation.session_id);
       const manualNoteCount = conversation._checkManualNote ? countManualTriggerNotes(messages) : record.manualNoteCount;
       const hasNewManualNote = manualNoteCount > record.manualNoteCount;
 
-      if (!hasNewManualNote && !eligibleForAutoEscalate) continue;
+      if (!hasNewManualNote && !eligibleForAutoEscalate && !isReopen) continue;
 
-      const transcript = messages
-        .filter((m) => m.type === "text")
-        .map((m) => `${m.from === "user" ? "Customer" : "Agent"}: ${m.content}`)
-        .join("\n");
+      // A reopen only looks at what's new since the previous resolve (a
+      // manual note overrides this and always gets the full transcript, same
+      // as everywhere else this pipeline honors that note).
+      const relevantMessages = isReopen && !hasNewManualNote
+        ? messages.filter((m) => (m.timestamp ?? 0) > previousResolveAt)
+        : messages;
+      const transcript = transcriptFrom(relevantMessages);
       if (!transcript.trim()) continue;
 
       if (hasNewManualNote) {
@@ -196,6 +202,19 @@ async function main() {
         } else {
           skippedUnmapped.push({ account: accountKey, session_id: conversation.session_id, inboxKey: result.unmappedKey });
         }
+      } else if (isReopen) {
+        const result = await classifyAndRoute(accountConfig, conversation, transcript);
+        if (result.repo && result.actionable && result.kind !== "none") {
+          matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
+          investigated.add(conversation.session_id);
+          reopenEscalations++;
+          console.log(`[${accountKey}] ${conversation.session_id}: reopened after resolve, classifier agrees -> escalated to ${result.repo}`);
+        }
+        // Advance the marker to the newest message we just looked at, so a
+        // conversation that's still open (not yet resolved again) doesn't
+        // get the same content re-classified on the next run.
+        const newestMs = messages.reduce((max, m) => Math.max(max, m.timestamp ?? 0), previousResolveAt);
+        resolvedSeen[conversation.session_id] = newestMs;
       } else if (eligibleForAutoEscalate) {
         const result = await classifyAndRoute(accountConfig, conversation, transcript);
         record.autoEscalated = true; // fires at most once, whether actionable or not
@@ -226,13 +245,17 @@ async function main() {
   await writeFile("state/escalated.json", JSON.stringify(escalated, null, 2) + "\n");
   // Bound growth, same as active-notified.json.
   await writeFile("state/investigated.json", JSON.stringify([...investigated].slice(-2000)));
+  await writeFile(
+    "state/resolved-seen.json",
+    JSON.stringify(Object.fromEntries(Object.entries(resolvedSeen).slice(-5000)), null, 2) + "\n"
+  );
 
   if (GITHUB_STEP_SUMMARY) {
     const lines = [
       `### Crisp triage — Stage 1`,
       ``,
-      `Fetched: ${totalFetched} · Actionable: ${dedupedMatrix.length} · Unmapped (skipped): ${skippedUnmapped.length} · Already handled while active (skipped): ${alreadyHandled} · Already fully investigated before (skipped): ${alreadyInvestigated}${duplicatesRemoved ? ` · Duplicate session_id across loops (deduped): ${duplicatesRemoved}` : ""}`,
-      `Escalated from active: ${manualEscalations} manual, ${autoEscalations} auto (stale ${AUTO_ESCALATE_HOURS}h–${AUTO_ESCALATE_MAX_HOURS}h)`,
+      `Fetched (resolved, recorded as seen, not investigated): ${totalFetched} · Actionable: ${dedupedMatrix.length} · Unmapped (skipped): ${skippedUnmapped.length} · Already handled while active (skipped): ${alreadyHandled}${duplicatesRemoved ? ` · Duplicate session_id across loops (deduped): ${duplicatesRemoved}` : ""}`,
+      `Escalated from active: ${manualEscalations} manual, ${reopenEscalations} reopen-after-resolve, ${autoEscalations} stale-auto (${AUTO_ESCALATE_HOURS}h–${AUTO_ESCALATE_MAX_HOURS}h)`,
     ];
     if (skippedUnmapped.length) {
       lines.push(``, `Unmapped inbox keys / unidentified products seen (add these to config/inbox-to-repo.json if real):`);
