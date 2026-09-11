@@ -45,8 +45,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Live re-check, not the event payload's draft field -- see the job's own comment above.
-          if [ "$(gh pr view "$PR" --repo "$REPO" --json isDraft --jq .isDraft)" = "true" ]; then
+          # Live re-check via curl, not the event payload's draft field, and
+          # not `gh pr view` either -- both were confirmed stale for real.
+          IS_DRAFT=$(curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/pulls/$PR" | grep -oE '"draft":\s*(true|false)' | grep -oE '(true|false)')
+          if [ "$IS_DRAFT" = "true" ]; then
             echo "PR is a draft -- skipping Copilot review request."
             exit 0
           fi
