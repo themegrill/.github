@@ -24,13 +24,14 @@ on:
 
 jobs:
   assign-copilot:
-    # Skip drafts (not ready for review yet) and bot-authored PRs (dependabot
-    # etc.) -- tg-autopilot itself is a User, not a Bot, so this doesn't
-    # affect its own PRs.
+    # Skip bot-authored PRs (dependabot etc.) here -- tg-autopilot itself is
+    # a User, not a Bot, so this doesn't affect its own PRs. Draft status is
+    # NOT checked here: confirmed for real that the "opened" event's own
+    # draft field can be stale (a PR created with --draft still delivered
+    # draft:false), so it's re-checked live inside the step below instead.
     if: |
       github.event_name == 'pull_request_target' &&
       github.event.action == 'opened' &&
-      github.event.pull_request.draft == false &&
       github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
     steps:
@@ -43,6 +44,12 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+
+          # Live re-check, not the event payload's draft field -- see the job's own comment above.
+          if [ "$(gh pr view "$PR" --repo "$REPO" --json isDraft --jq .isDraft)" = "true" ]; then
+            echo "PR is a draft -- skipping Copilot review request."
+            exit 0
+          fi
 
           # curl, not `gh api`, which can serve a cached GET right after our
           # own mutation and falsely report "not present yet".
