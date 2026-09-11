@@ -26,9 +26,8 @@ jobs:
   assign-copilot:
     # Skip bot-authored PRs (dependabot etc.) here -- tg-autopilot itself is
     # a User, not a Bot, so this doesn't affect its own PRs. Draft status is
-    # NOT checked here: confirmed for real that the "opened" event's own
-    # draft field can be stale (a PR created with --draft still delivered
-    # draft:false), so it's re-checked live inside the step below instead.
+    # checked live inside the step below instead of trusting this event's
+    # own payload.
     if: |
       github.event_name == 'pull_request_target' &&
       github.event.action == 'opened' &&
@@ -45,18 +44,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Live re-check, retried: confirmed for real that even a fresh curl
-          # right after "opened" can still read draft:false on a genuinely
-          # draft PR -- GitHub's own read lag, not a caching artifact (gh api
-          # and gh pr view were both ruled out first). A few seconds clears it.
+          # Draft status re-checked live via a plain API call, not the
+          # "opened" event's own payload, which can be stale. Retried briefly
+          # in case of a short read delay right after PR creation.
           IS_DRAFT="false"
-          for attempt in 1 2 3 4; do
-            RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$REPO/pulls/$PR")
-            echo "DEBUG attempt $attempt: PR=$PR REPO=$REPO status=$(echo "$RESPONSE" | grep -o 'HTTP_STATUS:.*') draft_match=$(echo "$RESPONSE" | grep -oE '"draft":\s*(true|false)')"
-            IS_DRAFT=$(echo "$RESPONSE" | grep -oE '"draft":\s*(true|false)' | grep -oE '(true|false)')
+          for attempt in 1 2 3; do
+            IS_DRAFT=$(curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/pulls/$PR" | grep -oE '"draft":\s*(true|false)' | grep -oE '(true|false)')
             [ "$IS_DRAFT" = "true" ] && break
-            sleep 5
+            sleep 4
           done
           if [ "$IS_DRAFT" = "true" ]; then
             echo "PR is a draft -- skipping Copilot review request."
