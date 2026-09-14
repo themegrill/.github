@@ -53,6 +53,35 @@ on:
         type: string
         required: false
         default: 'release/*.zip'
+      label:
+        description: |
+          Short label for the primary ZIP in the PR comment (e.g. "Free").
+          Leave empty (default) for a single-artifact repo -- the comment
+          then shows just the filename, unchanged from before this input
+          existed.
+        type: string
+        required: false
+        default: ''
+      extra-build-command:
+        description: |
+          Optional second build, for a repo whose one PR produces two
+          distinct distributables from the same tree (e.g. a Free+Pro pair
+          built by one dist script). Runs after build-command, in the same
+          job/checkout. Leave empty (default) to build only one artifact --
+          every existing caller is unaffected by this input.
+        type: string
+        required: false
+        default: ''
+      extra-zip-glob:
+        description: 'Where to find the second build''s ZIP. Required if extra-build-command is set.'
+        type: string
+        required: false
+        default: ''
+      extra-label:
+        description: 'Short label for the second ZIP in the PR comment (e.g. "Pro").'
+        type: string
+        required: false
+        default: ''
       artifact-prefix:
         description: 'Storage key prefix. Defaults to the repository name.'
         type: string
@@ -249,6 +278,27 @@ jobs:
           echo "name=$(basename "$ZIP")" >> "$GITHUB_OUTPUT"
           echo "size=$(du -h "$ZIP" | cut -f1)" >> "$GITHUB_OUTPUT"
 
+      # Second artifact from the same tree/checkout (e.g. a Pro build
+      # alongside the Free one above) -- only when the caller opts in.
+      - name: Build extra distributable
+        if: inputs.extra-build-command != ''
+        run: ${{ inputs.extra-build-command }}
+
+      - name: Locate the extra ZIP
+        id: zip2
+        if: inputs.extra-build-command != ''
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086
+          ZIP=$(ls -1 ${{ inputs.extra-zip-glob }} 2>/dev/null | head -n 1 || true)
+          if [ -z "$ZIP" ]; then
+            echo "::error::No ZIP matched '${{ inputs.extra-zip-glob }}'. Check extra-build-command and extra-zip-glob."
+            exit 1
+          fi
+          echo "path=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$ZIP")" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "$ZIP" | cut -f1)" >> "$GITHUB_OUTPUT"
+
       # Keyed by branch, not SHA: each push to the same PR overwrites the same
       # object instead of piling up one per push.
       - name: Compute storage key
@@ -284,6 +334,24 @@ jobs:
             $ENDPOINT --no-progress --content-type application/zip
           echo "url=${{ inputs.public-base-url }}/${KEY}" >> "$GITHUB_OUTPUT"
 
+      - name: Upload extra ZIP to object storage
+        id: upload2
+        if: inputs.extra-build-command != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACTS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACTS_SECRET }}
+          AWS_DEFAULT_REGION: ${{ inputs.s3-region }}
+        run: |
+          set -euo pipefail
+          ENDPOINT=""
+          if [ -n "${{ inputs.s3-endpoint }}" ]; then
+            ENDPOINT="--endpoint-url ${{ inputs.s3-endpoint }}"
+          fi
+          KEY="${{ steps.key.outputs.dir }}/${{ steps.zip2.outputs.name }}"
+          aws s3 cp "${{ steps.zip2.outputs.path }}" "s3://${{ inputs.artifacts-bucket }}/${KEY}" \
+            $ENDPOINT --no-progress --content-type application/zip
+          echo "url=${{ inputs.public-base-url }}/${KEY}" >> "$GITHUB_OUTPUT"
+
       - name: Stamp build time
         id: stamp
         run: echo "at=$(TZ='${{ inputs.timezone }}' date '+%b %-d, %Y %-I:%M %p %Z')" >> "$GITHUB_OUTPUT"
@@ -300,6 +368,40 @@ jobs:
           comment-author: tg-autopilot
           body-includes: '<!-- tg-autopilot: pr-build-zip -->'
 
+      # Built as a file (not an inline `body:`) so the one-or-two-artifact
+      # cases share one template instead of a brittle nested-ternary
+      # expression in YAML.
+      - name: Compose comment body
+        id: compose
+        env:
+          LABEL: ${{ inputs.label }}
+          EXTRA_LABEL: ${{ inputs.extra-label }}
+          EXTRA_NAME: ${{ steps.zip2.outputs.name }}
+        run: |
+          set -euo pipefail
+          {
+            echo "<!-- tg-autopilot: pr-build-zip -->"
+            echo "Build for \`${{ steps.key.outputs.sha8 }}\` is ready :bellhop_bell:"
+            echo ""
+            if [ -n "$LABEL" ]; then
+              echo "**${LABEL}: [:arrow_down: Download ${{ steps.zip.outputs.name }}](${{ steps.upload.outputs.url }})** (${{ steps.zip.outputs.size }})"
+            else
+              echo "**[:arrow_down: Download ${{ steps.zip.outputs.name }}](${{ steps.upload.outputs.url }})** (${{ steps.zip.outputs.size }})"
+            fi
+            if [ -n "$EXTRA_NAME" ]; then
+              if [ -n "$EXTRA_LABEL" ]; then
+                echo "**${EXTRA_LABEL}: [:arrow_down: Download ${{ steps.zip2.outputs.name }}](${{ steps.upload2.outputs.url }})** (${{ steps.zip2.outputs.size }})"
+              else
+                echo "**[:arrow_down: Download ${{ steps.zip2.outputs.name }}](${{ steps.upload2.outputs.url }})** (${{ steps.zip2.outputs.size }})"
+              fi
+            fi
+            echo ""
+            echo "Installs directly via **Plugins → Add New → Upload Plugin**."
+            echo "Link expires in ${{ inputs.retention-days }} days · updated ${{ steps.stamp.outputs.at }}"
+            echo ""
+            echo "<sub>A later push only rebuilds this if its commit message includes \`#build-zip\`.</sub>"
+          } > comment-body.md
+
       - name: Post or update the PR comment
         uses: peter-evans/create-or-update-comment@v4
         if: github.event_name == 'pull_request'
@@ -308,16 +410,7 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           comment-id: ${{ steps.find.outputs.comment-id }}
           edit-mode: replace
-          body: |
-            <!-- tg-autopilot: pr-build-zip -->
-            Build for `${{ steps.key.outputs.sha8 }}` is ready :bellhop_bell:
-
-            **[:arrow_down: Download ${{ steps.zip.outputs.name }}](${{ steps.upload.outputs.url }})** (${{ steps.zip.outputs.size }})
-
-            Installs directly via **Plugins → Add New → Upload Plugin**.
-            Link expires in ${{ inputs.retention-days }} days · updated ${{ steps.stamp.outputs.at }}
-
-            <sub>A later push only rebuilds this if its commit message includes `#build-zip`.</sub>
+          body-path: comment-body.md
 
       - name: Run summary
         run: |
@@ -329,4 +422,8 @@ jobs:
             echo "| Commit | \`${{ steps.key.outputs.sha8 }}\` |"
             echo "| ZIP | ${{ steps.zip.outputs.name }} (${{ steps.zip.outputs.size }}) |"
             echo "| Download | ${{ steps.upload.outputs.url }} |"
+            if [ -n "${{ steps.zip2.outputs.name }}" ]; then
+              echo "| Extra ZIP | ${{ steps.zip2.outputs.name }} (${{ steps.zip2.outputs.size }}) |"
+              echo "| Extra Download | ${{ steps.upload2.outputs.url }} |"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

@@ -22,4 +22,14 @@ jobs:
       # For Cloudflare R2, use instead:
       # s3-endpoint: https://<account-id>.r2.cloudflarestorage.com
       # s3-region: auto
+      #
+      # For a repo whose single build produces two distinct distributables
+      # from the same tree (e.g. a Free+Pro pair), add labels plus a second
+      # build/glob -- both zips land in the SAME PR comment (only one comment
+      # is ever posted per PR, so a second `uses:` block of this workflow
+      # would just clobber the first's comment instead of adding to it):
+      # label: Free
+      # extra-build-command: bash bin/dist.sh pro
+      # extra-zip-glob: 'artifact/allcoach-pro-*.zip'
+      # extra-label: Pro
     secrets: inherit
