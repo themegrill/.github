@@ -64,16 +64,22 @@ on:
         default: ''
       extra-build-command:
         description: |
-          Optional second build, for a repo whose one PR produces two
-          distinct distributables from the same tree (e.g. a Free+Pro pair
-          built by one dist script). Runs after build-command, in the same
-          job/checkout. Leave empty (default) to build only one artifact --
-          every existing caller is unaffected by this input.
+          Optional second build step, for the (rare) case where the second
+          artifact needs its own command. Most dual-artifact repos don't need
+          this: if build-command already produces both zips in one pass (e.g.
+          a single dist script), leave this empty and set only extra-zip-glob
+          below to pick up the second one. Runs after build-command, in the
+          same job/checkout. Leave both extra-* inputs empty (default) for a
+          single-artifact repo -- every existing caller is unaffected.
         type: string
         required: false
         default: ''
       extra-zip-glob:
-        description: 'Where to find the second build''s ZIP. Required if extra-build-command is set.'
+        description: |
+          Where to find the second artifact. Setting this (regardless of
+          extra-build-command) is what turns on the two-zip behavior: the
+          second zip is located, uploaded, and listed in the same PR comment
+          as the first.
         type: string
         required: false
         default: ''
@@ -286,7 +292,7 @@ jobs:
 
       - name: Locate the extra ZIP
         id: zip2
-        if: inputs.extra-build-command != ''
+        if: inputs.extra-zip-glob != ''
         run: |
           set -euo pipefail
           # shellcheck disable=SC2086
@@ -336,7 +342,7 @@ jobs:
 
       - name: Upload extra ZIP to object storage
         id: upload2
-        if: inputs.extra-build-command != ''
+        if: inputs.extra-zip-glob != ''
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACTS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACTS_SECRET }}
