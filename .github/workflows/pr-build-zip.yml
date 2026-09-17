@@ -41,6 +41,11 @@ on:
         type: boolean
         required: false
         default: true
+      checkout-submodules:
+        description: 'Check out git submodules too (needed if the build depends on one, e.g. a bundled SDK).'
+        type: boolean
+        required: false
+        default: false
       build-command:
         description: |
           Command(s) that produce the distributable ZIP. This should call the
@@ -192,6 +197,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: ${{ inputs.checkout-submodules }}
 
       - name: Set up PHP ${{ inputs.php-version }}
         uses: shivammathur/setup-php@v2
