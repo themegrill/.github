@@ -150,7 +150,16 @@ async function main() {
       const relevantMessages = isReopen && !hasNewManualNote
         ? messages.filter((m) => (m.timestamp ?? 0) > previousResolveAt)
         : messages;
-      const transcript = transcriptFrom(relevantMessages);
+      let transcript = transcriptFrom(relevantMessages);
+      // Pair a reopen's delta with the opening messages, or it reads as
+      // routine follow-up with no idea what bug it's about. Capped to a few
+      // messages, not the full history, to keep this cheap.
+      if (isReopen && !hasNewManualNote && transcript.trim()) {
+        const opening = transcriptFrom(messages.slice(0, 6));
+        if (opening.trim()) {
+          transcript = `[Original report]\n${opening}\n\n[New activity since last checked]\n${transcript}`;
+        }
+      }
       if (!transcript.trim()) continue;
 
       if (hasNewManualNote) {
@@ -171,6 +180,9 @@ async function main() {
           investigated.add(conversation.session_id);
           reopenEscalations++;
           console.log(`[${accountKey}] ${conversation.session_id}: reopened after resolve, classifier agrees -> escalated to ${result.repo}`);
+        } else {
+          // Log the verdict even on a skip, so a silently-missed real bug is visible in the run log.
+          console.log(`[${accountKey}] ${conversation.session_id}: reopened after resolve, classifier says not actionable (kind=${result.kind ?? "n/a"}${result.repo ? "" : ", unmapped"}) -- not escalated`);
         }
         // Advance the marker so an unresolved reopen doesn't get re-classified next run.
         const newestMs = messages.reduce((max, m) => Math.max(max, m.timestamp ?? 0), previousResolveAt);
@@ -183,6 +195,8 @@ async function main() {
           investigated.add(conversation.session_id);
           autoEscalations++;
           console.log(`[${accountKey}] ${conversation.session_id}: stale ${staleHours.toFixed(1)}h, classifier agrees -> escalated to ${result.repo}`);
+        } else {
+          console.log(`[${accountKey}] ${conversation.session_id}: stale ${staleHours.toFixed(1)}h, classifier says not actionable (kind=${result.kind ?? "n/a"}${result.repo ? "" : ", unmapped"}) -- not escalated`);
         }
       }
 
