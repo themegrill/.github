@@ -101,6 +101,15 @@ async function main() {
 
       // Always record the resolve, even if a manual note just fired above.
       resolvedSeen[conversation.session_id] = conversation.updated_at ?? Date.now();
+
+      // A resolve ends this episode -- let a future reopen be eligible for
+      // auto-escalation again, instead of blocked forever. manualNoteCount
+      // stays as-is (it's cumulative, not per-episode) so an old note can't
+      // look "new" again and double-escalate.
+      investigated.delete(conversation.session_id);
+      if (escalated[conversation.session_id]) {
+        escalated[conversation.session_id].autoEscalated = false;
+      }
     }
 
     // Active conversations: manual note, reopen, or time-based escalation.
