@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { credsForAccount, crispGet } from "./crisp-client.mjs";
-
 const { ACCOUNT_KEY, TARGET_SESSION_ID } = process.env;
 async function main() {
   const creds = credsForAccount(ACCOUNT_KEY);
