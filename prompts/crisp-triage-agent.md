@@ -26,11 +26,16 @@ You are triaging one customer support conversation for the `{{REPO}}` repository
 
    **Feature requests need a stricter match than bugs.** Two customers can want different things from a similar-sounding or vaguely-titled request -- only treat it as the same request if this transcript asks for the exact same capability, not just the same general area of the product. A question about whether something already exists, or how to configure it, is a how-to question, not a match for an open feature request.
 
-3. **For each item with a genuine match nothing tracks yet**, file one issue per item:
+3. **For each item with a genuine match nothing tracks yet**, decide its QA label first: `manual-qa-required` if your confidence is below 70/100 *or* you did not directly reproduce it (transcript + code inspection alone, no actual run/test) -- otherwise `qa-verified`. Match this to the same confidence score and reproduction method you write in the issue body below; they must agree, never one saying "verified" and the other implying doubt. A repo may not have these labels yet, so create them first, ignoring the error if they already exist:
    ```
-   gh issue create --repo {{REPO}} --title "..." --label bug-report,bug-report-triage --body-file <path>
+   gh label create manual-qa-required --color fbca04 --description "AI-filed issue below the confidence/reproduction bar -- verify before acting" 2>/dev/null || true
+   gh label create qa-verified --color 0e8a16 --description "AI-filed issue reproduced directly with high confidence" 2>/dev/null || true
    ```
-   (use label `feature-request,bug-report-triage` for a feature). Write the body file as actual markdown -- each section below is a real `##` heading in the file you write, not just plain text with the section name at the top of a paragraph:
+   Then file one issue per item:
+   ```
+   gh issue create --repo {{REPO}} --title "..." --label bug-report,bug-report-triage,<qa-label> --body-file <path>
+   ```
+   (use label `feature-request,bug-report-triage,<qa-label>` for a feature). Write the body file as actual markdown -- each section below is a real `##` heading in the file you write, not just plain text with the section name at the top of a paragraph:
    ```markdown
    ## Summary
 
