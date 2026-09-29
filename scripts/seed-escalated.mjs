@@ -9,17 +9,24 @@
 // conversation loop (already forward-only via cursor.json) and doesn't
 // block a manual "!tg-autopilot investigate" note, which never checks this.
 //
-// Seeds checkedThroughAt from conversation-level metadata (updated_at,
-// falling back to active.last/created_at), not real message timestamps --
-// good enough for a one-off bootstrap, and cheap since it skips fetching
-// every backlog conversation's full message list. Worst case a few items
-// get re-checked once for real on the next run, which is harmless.
+// checkedThroughAt MUST come from real message timestamps (fetchRawMessages),
+// matching exactly what crisp-classify.mjs itself compares against -- NOT
+// conversation-level metadata (updated_at/active.last). Confirmed for real
+// this was a genuine bug, not a theoretical one: seeding from updated_at
+// undercounted real activity for a large fraction of a backlog, so those
+// conversations immediately looked "newer than the seed mark" again and
+// fired anyway on the very next run, defeating the whole point of seeding.
+//
+// --force recomputes and overwrites every entry (used to correct a prior
+// bad seed); without it, only conversations with no checkedThroughAt yet
+// are touched, which is what real new-account onboarding wants.
 import { readFile, writeFile } from "node:fs/promises";
-import { fetchActiveConversations, credsForAccount } from "./crisp-client.mjs";
+import { fetchActiveConversations, fetchRawMessages, credsForAccount } from "./crisp-client.mjs";
 
-const [accountKey] = process.argv.slice(2);
+const [accountKey, flag] = process.argv.slice(2);
+const force = flag === "--force";
 if (!accountKey) {
-  console.error("Usage: seed-escalated.mjs <ACCOUNT_KEY>");
+  console.error("Usage: seed-escalated.mjs <ACCOUNT_KEY> [--force]");
   process.exit(1);
 }
 
@@ -31,8 +38,9 @@ async function main() {
   let seeded = 0;
   for (const conversation of conversations) {
     const record = escalated[conversation.session_id] ?? { manualNoteCount: 0 };
-    if (record.checkedThroughAt === undefined) {
-      record.checkedThroughAt = conversation.updated_at ?? conversation.active?.last ?? conversation.created_at;
+    if (force || record.checkedThroughAt === undefined) {
+      const messages = await fetchRawMessages(creds, conversation.session_id);
+      record.checkedThroughAt = messages.reduce((max, m) => Math.max(max, m.timestamp ?? 0), 0);
       escalated[conversation.session_id] = record;
       seeded++;
     }
