@@ -12,6 +12,11 @@ on:
         description: "Account key from config/inbox-to-repo.json (e.g. USER_REGISTRATION)"
         required: true
         type: string
+      force:
+        description: "Recompute and overwrite every entry, not just unset ones (used to correct a prior bad seed)."
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   seed:
@@ -37,7 +42,7 @@ jobs:
           CRISP_THEMEGRILL_IDENTIFIER: ${{ secrets.CRISP_THEMEGRILL_IDENTIFIER }}
           CRISP_THEMEGRILL_KEY: ${{ secrets.CRISP_THEMEGRILL_KEY }}
           CRISP_THEMEGRILL_WEBSITE_ID: ${{ vars.CRISP_THEMEGRILL_WEBSITE_ID }}
-        run: node scripts/seed-escalated.mjs "${{ inputs.account }}"
+        run: node scripts/seed-escalated.mjs "${{ inputs.account }}" ${{ inputs.force && '--force' || '' }}
 
       # Same retry pattern as crisp-triage.yml's "Commit advanced state" --
       # see that step's comments for why the loop and -X ours are needed.
