@@ -37,7 +37,10 @@ async function main() {
   const activeNotified = new Set(
     JSON.parse(await readFile("state/active-notified.json", "utf8").catch(() => "[]"))
   );
-  // { [session_id]: { autoEscalated: bool, manualNoteCount: number } }
+  // { [session_id]: { manualNoteCount: number, checkedThroughAt?: number } }
+  // checkedThroughAt is the newest message timestamp already considered by
+  // the stale-auto-escalate check -- re-arms as soon as anything newer shows
+  // up, rather than blocking a session forever after one check.
   const escalated = JSON.parse(await readFile("state/escalated.json", "utf8").catch(() => "{}"));
   // session_ids already fully investigated once. Not checked for manual notes.
   const investigated = new Set(
@@ -80,13 +83,17 @@ async function main() {
       const transcript = transcriptFrom(messages);
 
       if (transcript.trim()) {
-        const record = escalated[conversation.session_id] ?? { autoEscalated: false, manualNoteCount: 0 };
+        const record = escalated[conversation.session_id] ?? { manualNoteCount: 0 };
         const manualNoteCount = countManualTriggerNotes(messages);
         const hasNewManualNote = manualNoteCount > record.manualNoteCount;
 
         if (hasNewManualNote) {
           const result = await classifyAndRoute(accountConfig, conversation, transcript, { skipClassifier: true });
           record.manualNoteCount = manualNoteCount;
+          // Same reasoning as the active loop's manual-note branch: stamp it
+          // so a later independent stale-fallback check doesn't redundantly
+          // reprocess content a human already had investigated directly.
+          record.checkedThroughAt = messages.reduce((max, m) => Math.max(max, m.timestamp ?? 0), record.checkedThroughAt ?? 0);
           escalated[conversation.session_id] = record;
           if (result.repo) {
             matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
@@ -101,15 +108,6 @@ async function main() {
 
       // Always record the resolve, even if a manual note just fired above.
       resolvedSeen[conversation.session_id] = conversation.updated_at ?? Date.now();
-
-      // A resolve ends this episode -- let a future reopen be eligible for
-      // auto-escalation again, instead of blocked forever. manualNoteCount
-      // stays as-is (it's cumulative, not per-episode) so an old note can't
-      // look "new" again and double-escalate.
-      investigated.delete(conversation.session_id);
-      if (escalated[conversation.session_id]) {
-        escalated[conversation.session_id].autoEscalated = false;
-      }
     }
 
     // Active conversations: manual note, reopen, or time-based escalation.
@@ -132,17 +130,20 @@ async function main() {
     }
 
     for (const conversation of activeConversations) {
-      const record = escalated[conversation.session_id] ?? { autoEscalated: false, manualNoteCount: 0 };
+      const record = escalated[conversation.session_id] ?? { manualNoteCount: 0 };
       const previousResolveAt = resolvedSeen[conversation.session_id];
 
       // active.last, not created_at, so a reopened thread isn't read as ancient.
+      // NOTE: active.last (and even updated_at) can lag behind real message
+      // activity, especially for email-origin conversations -- confirmed for
+      // real (session_bd0acc7b showed live replies well after both fields
+      // had stopped moving). So this is only used to decide whether it's
+      // worth fetching messages at all, never as the final word on
+      // freshness -- see checkedThroughAt below, which is timestamped from
+      // the actual fetched messages instead.
       const lastActiveAt = conversation.active?.last ?? conversation.created_at;
       const staleHours = (Date.now() - lastActiveAt) / (1000 * 60 * 60);
-      const eligibleForAutoEscalate =
-        !record.autoEscalated &&
-        !investigated.has(conversation.session_id) &&
-        staleHours >= AUTO_ESCALATE_HOURS &&
-        staleHours <= AUTO_ESCALATE_MAX_HOURS;
+      const eligibleForAutoEscalate = staleHours >= AUTO_ESCALATE_HOURS && staleHours <= AUTO_ESCALATE_MAX_HOURS;
 
       // Seen resolved before, active again now -- a reopen.
       const isReopen = previousResolveAt !== undefined;
@@ -169,11 +170,23 @@ async function main() {
           transcript = `[Original report]\n${opening}\n\n[New activity since last checked]\n${transcript}`;
         }
       }
+      // A reopen with nothing new since the resolve isn't "handled" -- often
+      // a spurious/premature resolve on an otherwise-stale, never-addressed
+      // conversation (confirmed for real: session_bd0acc7b). Fall back to a
+      // full-history stale check instead of silently skipping it forever.
+      const reopenHasNothingNew = isReopen && !hasNewManualNote && !transcript.trim();
+      if (reopenHasNothingNew && eligibleForAutoEscalate) {
+        transcript = transcriptFrom(messages);
+      }
       if (!transcript.trim()) continue;
 
       if (hasNewManualNote) {
         const result = await classifyAndRoute(accountConfig, conversation, transcript, { skipClassifier: true });
         record.manualNoteCount = manualNoteCount;
+        // Same reasoning as the reopen branch: stamp it so a later
+        // independent stale-fallback check doesn't redundantly reprocess
+        // content a human already had investigated directly.
+        record.checkedThroughAt = messages.reduce((max, m) => Math.max(max, m.timestamp ?? 0), record.checkedThroughAt ?? 0);
         if (result.repo) {
           matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
           investigated.add(conversation.session_id);
@@ -182,7 +195,7 @@ async function main() {
         } else {
           skippedUnmapped.push({ account: accountKey, session_id: conversation.session_id, inboxKey: result.unmappedKey });
         }
-      } else if (isReopen) {
+      } else if (isReopen && !reopenHasNothingNew) {
         const result = await classifyAndRoute(accountConfig, conversation, transcript);
         if (result.repo && result.actionable && result.kind !== "none") {
           matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
@@ -196,16 +209,29 @@ async function main() {
         // Advance the marker so an unresolved reopen doesn't get re-classified next run.
         const newestMs = messages.reduce((max, m) => Math.max(max, m.timestamp ?? 0), previousResolveAt);
         resolvedSeen[conversation.session_id] = newestMs;
+        // Also stamp checkedThroughAt: if this later goes quiet again and
+        // falls to the stale-fallback branch below with nothing further to
+        // say, it should see this content as already handled, not re-classify it.
+        record.checkedThroughAt = newestMs;
       } else if (eligibleForAutoEscalate) {
-        const result = await classifyAndRoute(accountConfig, conversation, transcript);
-        record.autoEscalated = true; // fires at most once, whether actionable or not
-        if (result.repo && result.actionable && result.kind !== "none") {
-          matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
-          investigated.add(conversation.session_id);
-          autoEscalations++;
-          console.log(`[${accountKey}] ${conversation.session_id}: stale ${staleHours.toFixed(1)}h, classifier agrees -> escalated to ${result.repo}`);
-        } else {
-          console.log(`[${accountKey}] ${conversation.session_id}: stale ${staleHours.toFixed(1)}h, classifier says not actionable (kind=${result.kind ?? "n/a"}${result.repo ? "" : ", unmapped"}) -- not escalated`);
+        // checkedThroughAt is stamped from the actual fetched messages, not
+        // conversation-level metadata (see the note above on why) -- so a
+        // conversation only gets re-classified once real new content shows
+        // up, but can never be blocked forever the way a permanent
+        // already-investigated flag was (confirmed for real: session_2fc63232
+        // stayed stuck across repeated resolve/reopen cycles).
+        const newestMessageAt = messages.reduce((max, m) => Math.max(max, m.timestamp ?? 0), 0);
+        if (record.checkedThroughAt === undefined || newestMessageAt > record.checkedThroughAt) {
+          const result = await classifyAndRoute(accountConfig, conversation, transcript);
+          record.checkedThroughAt = newestMessageAt;
+          if (result.repo && result.actionable && result.kind !== "none") {
+            matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
+            investigated.add(conversation.session_id);
+            autoEscalations++;
+            console.log(`[${accountKey}] ${conversation.session_id}: stale ${staleHours.toFixed(1)}h, classifier agrees -> escalated to ${result.repo}`);
+          } else {
+            console.log(`[${accountKey}] ${conversation.session_id}: stale ${staleHours.toFixed(1)}h, classifier says not actionable (kind=${result.kind ?? "n/a"}${result.repo ? "" : ", unmapped"}) -- not escalated`);
+          }
         }
       }
 

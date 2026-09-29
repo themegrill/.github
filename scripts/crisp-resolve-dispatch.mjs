@@ -78,7 +78,7 @@ async function main() {
       return;
     }
 
-    const record = escalated[TARGET_SESSION_ID] ?? { autoEscalated: false, manualNoteCount: 0 };
+    const record = escalated[TARGET_SESSION_ID] ?? { manualNoteCount: 0 };
     record.manualNoteCount = countManualTriggerNotes(messages);
     escalated[TARGET_SESSION_ID] = record;
     investigated.add(TARGET_SESSION_ID);

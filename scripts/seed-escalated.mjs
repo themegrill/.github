@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 // One-off maintenance script: marks every currently-active conversation for
-// one Crisp account as already auto-escalated, so a newly onboarded
-// account's pre-existing backlog doesn't all fire in crisp-triage.yml's
-// first run. Run via .github/workflows/seed-escalated.yml once per new
-// account, before its first scheduled crisp-triage run.
+// one Crisp account as already checked, so a newly onboarded account's
+// pre-existing backlog doesn't all fire in crisp-triage.yml's first run.
+// Run via .github/workflows/seed-escalated.yml once per new account, before
+// its first scheduled crisp-triage run.
 //
 // Only blocks the AUTO-escalation path -- doesn't touch the resolved-
 // conversation loop (already forward-only via cursor.json) and doesn't
 // block a manual "!tg-autopilot investigate" note, which never checks this.
+//
+// Seeds checkedThroughAt from conversation-level metadata (updated_at,
+// falling back to active.last/created_at), not real message timestamps --
+// good enough for a one-off bootstrap, and cheap since it skips fetching
+// every backlog conversation's full message list. Worst case a few items
+// get re-checked once for real on the next run, which is harmless.
 import { readFile, writeFile } from "node:fs/promises";
 import { fetchActiveConversations, credsForAccount } from "./crisp-client.mjs";
 
@@ -24,16 +30,16 @@ async function main() {
 
   let seeded = 0;
   for (const conversation of conversations) {
-    const record = escalated[conversation.session_id] ?? { autoEscalated: false, manualNoteCount: 0 };
-    if (!record.autoEscalated) {
-      record.autoEscalated = true;
+    const record = escalated[conversation.session_id] ?? { manualNoteCount: 0 };
+    if (record.checkedThroughAt === undefined) {
+      record.checkedThroughAt = conversation.updated_at ?? conversation.active?.last ?? conversation.created_at;
       escalated[conversation.session_id] = record;
       seeded++;
     }
   }
 
   await writeFile("state/escalated.json", JSON.stringify(escalated, null, 2) + "\n");
-  console.log(`[${accountKey}] seeded ${seeded} of ${conversations.length} active conversations as already-escalated (backlog skip).`);
+  console.log(`[${accountKey}] seeded ${seeded} of ${conversations.length} active conversations as already-checked (backlog skip).`);
 }
 
 main().catch((err) => {
