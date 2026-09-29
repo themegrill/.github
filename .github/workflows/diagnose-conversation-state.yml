@@ -4,6 +4,7 @@ on:
     inputs:
       account_key: { required: true, type: string }
       session_id: { required: true, type: string }
+      cutoff_ms: { required: false, type: string, default: "0" }
 jobs:
   diagnose:
     runs-on: ubuntu-latest
@@ -11,10 +12,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: "20" }
-      - run: node scripts/diagnose-active-cap.mjs
+      - run: node scripts/diagnose-message-timestamps.mjs
         env:
           ACCOUNT_KEY: ${{ inputs.account_key }}
           TARGET_SESSION_ID: ${{ inputs.session_id }}
+          CUTOFF_MS: ${{ inputs.cutoff_ms }}
           CRISP_USER_REGISTRATION_IDENTIFIER: ${{ secrets.CRISP_USER_REGISTRATION_IDENTIFIER }}
           CRISP_USER_REGISTRATION_KEY: ${{ secrets.CRISP_USER_REGISTRATION_KEY }}
           CRISP_USER_REGISTRATION_WEBSITE_ID: ${{ vars.CRISP_USER_REGISTRATION_WEBSITE_ID }}
