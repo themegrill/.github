@@ -636,7 +636,7 @@
   "session_9606c5c7-681d-48d3-8862-0008526c1958": {
     "autoEscalated": true,
     "manualNoteCount": 0,
-    "checkedThroughAt": 1785392508025
+    "checkedThroughAt": 1790743385163
   },
   "session_181c942d-ad25-449e-bd30-64c6f1cff98a": {
     "autoEscalated": true,
@@ -4154,7 +4154,7 @@
   },
   "session_2e1d46e8-2a5a-4069-82b0-fae70c5017cc": {
     "manualNoteCount": 0,
-    "checkedThroughAt": 1790627150606
+    "checkedThroughAt": 1790743139805
   },
   "session_bb4dd5e4-4a46-4a5d-9917-748fd43ca9f0": {
     "manualNoteCount": 0,
@@ -4450,7 +4450,7 @@
   },
   "session_fb5d72b5-bc54-4ffd-ac4e-f5dd9c845f39": {
     "manualNoteCount": 0,
-    "checkedThroughAt": 1790676669923
+    "checkedThroughAt": 1790691593138
   },
   "session_c00f1a51-df5b-4d73-b560-8b286ca9bdc4": {
     "manualNoteCount": 0,
@@ -4550,7 +4550,7 @@
   },
   "session_7776f253-7702-45c2-b4fd-834247789a6e": {
     "manualNoteCount": 0,
-    "checkedThroughAt": 1790570283531
+    "checkedThroughAt": 1790743393094
   },
   "session_abf2db3d-cfe3-4c99-bb0e-95cd4899c481": {
     "manualNoteCount": 0,
@@ -4602,7 +4602,7 @@
   },
   "session_17211e80-8fb0-493b-8ac4-0f6ac57d6375": {
     "manualNoteCount": 0,
-    "checkedThroughAt": 1790676411132
+    "checkedThroughAt": 1790743640539
   },
   "session_234a67e5-0096-44c2-ba51-e8b957021141": {
     "manualNoteCount": 0,
@@ -4778,7 +4778,7 @@
   },
   "session_f27394f9-575f-42d0-ba48-d2724295efcb": {
     "manualNoteCount": 0,
-    "checkedThroughAt": 1790674962704
+    "checkedThroughAt": 1790734497672
   },
   "session_b19064ed-63e9-4a28-b9c0-354b74831e19": {
     "manualNoteCount": 0,
@@ -4794,10 +4794,18 @@
   },
   "session_893163bd-7ce3-4efc-9937-8762e64bdf8a": {
     "manualNoteCount": 0,
-    "checkedThroughAt": 1790673789796
+    "checkedThroughAt": 1790744958271
   },
   "session_6c2ea0e1-ba1e-47c1-add3-7f1b505d3778": {
     "manualNoteCount": 0,
     "checkedThroughAt": 1790672176668
+  },
+  "session_13e08923-96b0-4055-ab12-e55d0080f01c": {
+    "manualNoteCount": 0,
+    "checkedThroughAt": 1790721056360
+  },
+  "session_08c8d3a9-36c2-4f37-b605-908e2694572c": {
+    "manualNoteCount": 0,
+    "checkedThroughAt": 1790743595687
   }
 }
