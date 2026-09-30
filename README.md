@@ -14,7 +14,7 @@ We use a machine user instead of a GitHub App because it keeps one identity acro
 
 ## Maintainer skills
 
-`.claude/skills/` has step-by-step guides for the maintenance tasks below. Start here before touching config or workflows by hand — each one already bakes in the gotchas this README used to spell out inline.
+`skills/` (a Claude Code plugin, invoked as `tg-autopilot:<skill>`) has step-by-step guides for the maintenance tasks below. Start here before touching config or workflows by hand — each one already bakes in the gotchas this README used to spell out inline.
 
 | Skill | Use it when... |
 |---|---|

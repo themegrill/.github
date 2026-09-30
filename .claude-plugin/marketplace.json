@@ -1,0 +1,11 @@
+{
+  "name": "tg-autopilot",
+  "owner": { "name": "ThemeGrill" },
+  "plugins": [
+    {
+      "name": "tg-autopilot",
+      "source": "./",
+      "description": "ThemeGrill shared bot automation playbooks: repo onboarding, Crisp triage debugging, and GitHub Actions verification."
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "tg-autopilot",
+  "description": "ThemeGrill shared bot automation playbooks: repo onboarding, Crisp triage debugging, and GitHub Actions verification.",
+  "version": "1.0.0"
+}
