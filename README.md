@@ -24,8 +24,9 @@ We use a machine user instead of a GitHub App because it keeps one identity acro
 | `propagate-shared-secret` | adding a brand-new secret/variable that needs to reach every private repo in both orgs |
 | `transfer-repo-across-orgs` | moving a repo between `wpeverest` and `themegrill` |
 | `debug-crisp-401-errors` | crisp-triage is failing with a Crisp API auth error |
+| `debug-crisp-triage-not-investigated` | a specific conversation should have been auto-investigated and wasn't |
 | `write-safe-bot-workflow` | writing or editing any comment-triggered workflow |
-| `verify-github-actions-change` | a change you just made looks like it didn't take effect |
+| `verify-github-actions-change` | a change you just made looks like it didn't take effect, or before opening a PR from a branch you just pushed |
 
 ## Onboarding a new repo
 
@@ -58,3 +59,4 @@ Both live as org secrets on `wpeverest`, since that's where every workflow here 
 - A failed "Investigate" job in Crisp triage can be safely re-run on its own from the run page (**Re-run job**) — it retries the same conversation, no state to reset first. See [PHASE2-SETUP.md § 4d](PHASE2-SETUP.md#4d-investigate-job-concurrency-and-openai-rate-limits) for why this happens.
 - Committed state (`state/*.json`) is the pipeline's only memory of what it's already processed. If a run looks like it's reprocessing something it shouldn't, check whether "Commit advanced state" actually succeeded on the *prior* run, not just whether the investigation itself did.
 - If a mutation you just made (a secret, a workflow file, a PR reviewer) looks like it didn't take — see `verify-github-actions-change` before assuming the fix failed.
+- Check [CHANGELOG.md](CHANGELOG.md) for recent policy changes before assuming current behavior matches what an older doc section (or your own memory of the code) describes — this pipeline's escalation policy has changed more than once.

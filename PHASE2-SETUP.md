@@ -8,7 +8,8 @@ Files added for this phase, all in `themegrill/.github`:
 - `scripts/crisp-fetch-transcript.mjs`, `scripts/build-prompt.mjs`, `scripts/crisp-post-note.mjs` — Stage 2 helpers
 - `prompts/crisp-triage-agent.md` — the agent's instructions
 - `state/cursor.json` — persisted "last checked" timestamp
-- `state/investigated.json` — session_ids that already went through a full Stage 2 investigation at least once, so a conversation that resolves, gets reopened by the customer, and resolves again doesn't get reinvestigated (and re-noted) every cycle
+- `state/escalated.json` — per-session `checkedThroughAt` (a real-message timestamp, not conversation metadata) and `manualNoteCount`; this is what actually gates re-investigation — see § 4c
+- `state/investigated.json` — a write-only audit trail of every session_id that has ever completed a full Stage 2 investigation, from any path. Does **not** gate anything as of 2026-09-29 (see `CHANGELOG.md`) — kept for visibility only
 - `config/inbox-to-repo.json` — Crisp inbox → GitHub repo mapping (**you must populate this**)
 
 ## 1. Crisp API tokens — one per account, not one total
@@ -103,16 +104,4 @@ ThemeIsle's own numbers: $0.0003 per conversation when Stage 1 (or a quick Stage
 
 ## Changelog
 
-**2026-09-29 — permanent-block bug fix, real-timestamp freshness, cron/debug tooling**
-
-Two real chat sessions (`session_2fc63232`, `session_bd0acc7b`) stopped producing issues despite genuine, never-addressed problems. Root cause and fix:
-
-- `investigated.has(session_id)` / `escalated[session_id].autoEscalated` were permanent flags that never cleared, so a session auto-escalated once could never be auto-escalated again, ever — even after resolving and reopening with a brand new problem weeks later. Replaced with `checkedThroughAt` (timestamp from real fetched messages, not conversation metadata) — see § 4c above.
-- A reopen with nothing new since a (possibly spurious) resolve took the reopen branch, found an empty delta, and skipped forever instead of falling through to the independently-stale check. Now falls back to a full-history stale check.
-- Along the way, confirmed `active.last`/`updated_at` can lag real message activity for at least some conversations — the reason `checkedThroughAt` is deliberately message-based, not metadata-based. The 12h–720h staleness *window* itself still uses that metadata and is a known, unfixed residual gap (see the ⚠️ warning in § 4c).
-- `seed-escalated.mjs` had the same metadata-vs-real-timestamp bug on first attempt (seeded from `updated_at`, which undercounted real activity for a large fraction of a backlog and caused it to immediately re-fire) — fixed to fetch real messages instead, and given a `--force` flag to recompute existing entries.
-- All 3 accounts' current backlog was re-seeded with real-timestamp `checkedThroughAt` on 2026-09-29, so today's fix applies to new activity going forward rather than re-litigating months of history in one burst.
-- Added `skip_dedupe_check` (workflow_dispatch input on `crisp-triage.yml`) to skip the slow "check active conversations for duplicates" step (~15–20 min, unrelated to classify logic) for fast manual debugging. **Caveat learned the hard way: if `matrix` isn't empty, the downstream `investigate` job still auto-fires immediately after classify finishes** — a "fast test" run isn't safe to leave unattended once real conversations match, and must be watched/cancelled if you don't want real issues filed.
-- Cron cadence changed a few times this session while investigating a low signal-to-noise cadence: 5h (original) → 3h → 4h → 3h (temporary, as of this writing, to watch results more closely for a day).
-
-PRs: themegrill/.github#91, #92 (superseded, see below), #93 (accidentally a no-op — opened from a stale branch, merge commit had zero file changes, learned to always verify a branch's actual pushed content before opening a PR from it), #94, #95 (the real fix), #96.
+Moved to `CHANGELOG.md` at the repo root.
