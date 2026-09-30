@@ -8,6 +8,7 @@ This repo hosts ThemeGrill's shared bot automation: reusable GitHub Actions work
 
 ## Map
 
+- `ARCHITECTURE.md` — diagrams of how the three pipelines and each script fit together; start here if you are new.
 - `SETUP.md` — Phase 1 (pr-build-zip, Copilot review): one-time credentials/setup.
 - `PHASE2-SETUP.md` — Phase 2 (Crisp triage): credentials/setup **and** the actual design policy — § 4c/4d explain what triggers an investigation and why, and are the first thing to read before touching `crisp-classify.mjs`.
 - `CHANGELOG.md` — dated entries for notable fixes/redesigns. Read the most recent entries before assuming you understand current behavior; policy here has changed more than once.

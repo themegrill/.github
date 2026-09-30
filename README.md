@@ -6,6 +6,8 @@ We use a machine user instead of a GitHub App because it keeps one identity acro
 
 ## What's here
 
+New here? Read [ARCHITECTURE.md](ARCHITECTURE.md) for diagrams of how everything fits together.
+
 | Feature | Files | Docs |
 |---|---|---|
 | **PR build-zip comment** — builds a plugin/theme zip on every ready-for-review PR, uploads it, and posts/updates one comment with a direct download link | `.github/workflows/pr-build-zip.yml` + `.caller.yml` | [SETUP.md](SETUP.md) |
