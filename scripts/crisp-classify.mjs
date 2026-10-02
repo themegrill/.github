@@ -26,7 +26,7 @@ const AUTO_ESCALATE_MAX_HOURS = 24 * 30; // past this, only a manual note escala
 // One entry per conversation that reached the classifier this run -- becomes
 // the `scan` event (see events.mjs). Ids, enums and costs only, no text.
 const scanRecords = [];
-function record(path, account, sessionId, result, { manual = false } = {}) {
+function recordScan(path, account, sessionId, result, { manual = false } = {}) {
   const escalated = !!result.repo && (manual || (result.actionable && result.kind !== "none"));
   scanRecords.push({
     session_id: sessionId,
@@ -108,7 +108,7 @@ async function main() {
 
         if (hasNewManualNote) {
           const result = await classifyAndRoute(accountConfig, conversation, transcript, { skipClassifier: true });
-          record("resolved_manual", accountKey, conversation.session_id, result, { manual: true });
+          recordScan("resolved_manual", accountKey, conversation.session_id, result, { manual: true });
           record.manualNoteCount = manualNoteCount;
           // Same reasoning as the active loop's manual-note branch: stamp it
           // so a later independent stale-fallback check doesn't redundantly
@@ -202,7 +202,7 @@ async function main() {
 
       if (hasNewManualNote) {
         const result = await classifyAndRoute(accountConfig, conversation, transcript, { skipClassifier: true });
-        record("active_manual", accountKey, conversation.session_id, result, { manual: true });
+        recordScan("active_manual", accountKey, conversation.session_id, result, { manual: true });
         record.manualNoteCount = manualNoteCount;
         // Same reasoning as the reopen branch: stamp it so a later
         // independent stale-fallback check doesn't redundantly reprocess
@@ -218,7 +218,7 @@ async function main() {
         }
       } else if (isReopen && !reopenHasNothingNew) {
         const result = await classifyAndRoute(accountConfig, conversation, transcript);
-        record("reopen", accountKey, conversation.session_id, result);
+        recordScan("reopen", accountKey, conversation.session_id, result);
         if (result.repo && result.actionable && result.kind !== "none") {
           matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
           investigated.add(conversation.session_id);
@@ -245,7 +245,7 @@ async function main() {
         const newestMessageAt = messages.reduce((max, m) => Math.max(max, m.timestamp ?? 0), 0);
         if (record.checkedThroughAt === undefined || newestMessageAt > record.checkedThroughAt) {
           const result = await classifyAndRoute(accountConfig, conversation, transcript);
-          record("stale", accountKey, conversation.session_id, result);
+          recordScan("stale", accountKey, conversation.session_id, result);
           record.checkedThroughAt = newestMessageAt;
           if (result.repo && result.actionable && result.kind !== "none") {
             matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
