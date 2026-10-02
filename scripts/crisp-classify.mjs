@@ -290,7 +290,8 @@ async function main() {
       fetched_resolved: totalFetched,
       already_handled: alreadyHandled,
       escalated: dedupedMatrix.length,
-      unmapped: skippedUnmapped.length,
+      // From scanRecords, not skippedUnmapped: that list only covers manual-note cases.
+      unmapped: scanRecords.filter((r) => r.reason === "unmapped").length,
     },
     conversations: scanRecords,
   });

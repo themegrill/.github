@@ -29,7 +29,11 @@ async function main() {
   // failure; mirror that so the dashboard and the red job agree.
   let status = "success";
   let reason = null;
-  if (note === null) {
+  if (AGENT_STEP_OUTCOME === "cancelled") {
+    // A cancelled run also leaves no note; say so instead of blaming the agent.
+    status = "failed";
+    reason = "cancelled";
+  } else if (note === null) {
     status = "failed";
     reason = "no_note";
   } else if (AGENT_STEP_OUTCOME && AGENT_STEP_OUTCOME !== "success") {
