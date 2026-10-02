@@ -10,8 +10,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { credsForAccount, fetchRawMessages, countManualTriggerNotes } from "./crisp-client.mjs";
 import { classifyAndRoute } from "./crisp-classifier.mjs";
+import { emitEvent } from "./events.mjs";
 
 const { TARGET_SESSION_ID, GITHUB_STEP_SUMMARY } = process.env;
+const startedAt = new Date().toISOString();
 if (!TARGET_SESSION_ID) {
   console.error("Missing required env var: TARGET_SESSION_ID");
   process.exit(1);
@@ -77,6 +79,18 @@ async function main() {
       await summarize(`Found in [${accountKey}], but could not resolve a repo: \`${result.unmappedKey}\`.`);
       return;
     }
+
+    await emitEvent("scan", {
+      trigger: "instant",
+      started_at: startedAt,
+      ended_at: new Date().toISOString(),
+      totals: { fetched_resolved: 0, already_handled: 0, escalated: 1, unmapped: 0 },
+      conversations: [{
+        session_id: TARGET_SESSION_ID, account: accountKey, path: "instant_manual",
+        repo: result.repo, kind: result.kind, actionable: true, escalated: true, reason: null,
+        classifier: result.usage ?? null,
+      }],
+    });
 
     const record = escalated[TARGET_SESSION_ID] ?? { manualNoteCount: 0 };
     record.manualNoteCount = countManualTriggerNotes(messages);

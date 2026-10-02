@@ -2,6 +2,17 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-02 — event log for a triage dashboard (not live until the data repo exists)
+
+Groundwork for a run dashboard: Stage 1 and Stage 2 now write small JSON events to a **separate private repo** (`EVENTS_REPO`), never to this public one.
+
+- `scripts/events.mjs` writes one file per event through the Contents API. Best-effort: failures only warn, and with `EVENTS_REPO` unset it does nothing, so it is safe to merge first.
+- Two event types: `scan` (one per classify run, one entry per conversation that reached the classifier, with its tokens/cost) and `investigation` (one per Stage 2 job: status, outcome, issues filed/tracked, agent cost and duration).
+- No customer text in events: ids, enums, links, counts and costs only. The outcome is read from the bullet lines of the mandated Crisp note, never its free-text summary.
+- The events token is written in a separate workflow step, not in the agent's environment; the agent only leaves a copy of its note at `NOTE_RECORD_PATH`.
+- "Linked" and "commented on a match" can't be told apart from the note, so both show as `tracked`.
+- Classifier cost is estimated from token counts via `scripts/pricing.mjs` (verify prices; unknown model = no cost). Agent token counts assume opencode's `step_finish.part.tokens` shape and come back null if absent. Neither is confirmed against a real run yet.
+
 ## 2026-09-30 — housekeeping
 
 - Added `CLAUDE.md` so future work here starts from the existing skills/docs instead of re-discovering things from scratch.

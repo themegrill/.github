@@ -53,6 +53,8 @@ jobs:
           CRISP_THEMEGRILL_WEBSITE_ID: ${{ vars.CRISP_THEMEGRILL_WEBSITE_ID }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CLASSIFY_MODEL: ${{ vars.CLASSIFY_MODEL || 'gpt-5-mini' }}
+          EVENTS_REPO: ${{ vars.EVENTS_REPO }}
+          EVENTS_TOKEN: ${{ secrets.BOT_TOKEN_THEMEGRILL }}
         run: |
           node scripts/crisp-resolve-dispatch.mjs
           echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"

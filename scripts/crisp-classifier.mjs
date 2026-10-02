@@ -3,11 +3,14 @@
 // own main() unconditionally at the bottom -- importing from it directly
 // would trigger a full scan as a side effect.
 import { getInboxKey } from "./crisp-client.mjs";
-import { chatJSON } from "./openai-client.mjs";
+import { chatJSONWithUsage } from "./openai-client.mjs";
+
+// Both classify functions return { data, usage }; usage (tokens/cost) rides
+// along on classifyAndRoute's result for the event log.
 
 // Single-product (or Crisp-tagged-inbox) account: just actionable/kind.
 async function classify(transcript) {
-  return chatJSON(
+  return chatJSONWithUsage(
     "You triage customer support transcripts for a WordPress plugin company. " +
       "Given a transcript, decide if it describes an actionable software " +
       "defect (bug) or a genuine feature request -- as opposed to a billing " +
@@ -27,7 +30,7 @@ async function classify(transcript) {
 // actionable/kind decision plus product name (from the known list only) and
 // free/pro edition. Unknown product is skipped and logged, not guessed at.
 async function classifyWithProduct(transcript, productNames) {
-  return chatJSON(
+  return chatJSONWithUsage(
     "You triage customer support transcripts for a WordPress theme/plugin company " +
       "with many products. Given a transcript, decide (1) if it describes an " +
       "actionable software defect (bug) or a genuine feature request -- as opposed " +
@@ -60,28 +63,28 @@ async function classifyWithProduct(transcript, productNames) {
 // that call's own actionable verdict.
 export async function classifyAndRoute(accountConfig, conversation, transcript, { skipClassifier = false } = {}) {
   if (accountConfig.repo) {
-    const { actionable, kind } = skipClassifier
-      ? { actionable: true, kind: "bug" }
+    const { data: { actionable, kind }, usage } = skipClassifier
+      ? { data: { actionable: true, kind: "bug" }, usage: null }
       : await classify(transcript);
-    return { repo: accountConfig.repo, actionable, kind };
+    return { repo: accountConfig.repo, actionable, kind, usage };
   }
 
   if (accountConfig.products) {
     const productNames = Object.keys(accountConfig.products);
-    const result = await classifyWithProduct(transcript, productNames);
+    const { data: result, usage } = await classifyWithProduct(transcript, productNames);
     const mapping = accountConfig.products[result.product];
-    if (!mapping) return { repo: null, unmappedKey: `product:${result.product}` };
+    if (!mapping) return { repo: null, unmappedKey: `product:${result.product}`, usage };
     const repo = result.edition === "pro" && mapping.pro ? mapping.pro : mapping.free;
     return skipClassifier
-      ? { repo, actionable: true, kind: result.kind === "feature" ? "feature" : "bug" }
-      : { repo, actionable: result.actionable, kind: result.kind };
+      ? { repo, actionable: true, kind: result.kind === "feature" ? "feature" : "bug", usage }
+      : { repo, actionable: result.actionable, kind: result.kind, usage };
   }
 
   const inboxKey = getInboxKey(conversation);
   const mapping = inboxKey && accountConfig.inboxes?.[inboxKey];
   if (!mapping) return { repo: null, unmappedKey: inboxKey };
-  const { actionable, kind } = skipClassifier
-    ? { actionable: true, kind: "bug" }
+  const { data: { actionable, kind }, usage } = skipClassifier
+    ? { data: { actionable: true, kind: "bug" }, usage: null }
     : await classify(transcript);
-  return { repo: mapping.repo, actionable, kind };
+  return { repo: mapping.repo, actionable, kind, usage };
 }

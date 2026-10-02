@@ -17,10 +17,29 @@ import {
   credsForAccount,
 } from "./crisp-client.mjs";
 import { classifyAndRoute } from "./crisp-classifier.mjs";
+import { emitEvent } from "./events.mjs";
 
 const { GITHUB_STEP_SUMMARY } = process.env;
 const AUTO_ESCALATE_HOURS = 12;
 const AUTO_ESCALATE_MAX_HOURS = 24 * 30; // past this, only a manual note escalates it
+
+// One entry per conversation that reached the classifier this run -- becomes
+// the `scan` event (see events.mjs). Ids, enums and costs only, no text.
+const scanRecords = [];
+function record(path, account, sessionId, result, { manual = false } = {}) {
+  const escalated = !!result.repo && (manual || (result.actionable && result.kind !== "none"));
+  scanRecords.push({
+    session_id: sessionId,
+    account,
+    path,
+    repo: result.repo ?? null,
+    kind: result.kind ?? null,
+    actionable: manual ? true : (result.actionable ?? null),
+    escalated,
+    reason: escalated ? null : result.repo ? "not_actionable" : "unmapped",
+    classifier: result.usage ?? null,
+  });
+}
 
 function transcriptFrom(messages) {
   return messages
@@ -89,6 +108,7 @@ async function main() {
 
         if (hasNewManualNote) {
           const result = await classifyAndRoute(accountConfig, conversation, transcript, { skipClassifier: true });
+          record("resolved_manual", accountKey, conversation.session_id, result, { manual: true });
           record.manualNoteCount = manualNoteCount;
           // Same reasoning as the active loop's manual-note branch: stamp it
           // so a later independent stale-fallback check doesn't redundantly
@@ -182,6 +202,7 @@ async function main() {
 
       if (hasNewManualNote) {
         const result = await classifyAndRoute(accountConfig, conversation, transcript, { skipClassifier: true });
+        record("active_manual", accountKey, conversation.session_id, result, { manual: true });
         record.manualNoteCount = manualNoteCount;
         // Same reasoning as the reopen branch: stamp it so a later
         // independent stale-fallback check doesn't redundantly reprocess
@@ -197,6 +218,7 @@ async function main() {
         }
       } else if (isReopen && !reopenHasNothingNew) {
         const result = await classifyAndRoute(accountConfig, conversation, transcript);
+        record("reopen", accountKey, conversation.session_id, result);
         if (result.repo && result.actionable && result.kind !== "none") {
           matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
           investigated.add(conversation.session_id);
@@ -223,6 +245,7 @@ async function main() {
         const newestMessageAt = messages.reduce((max, m) => Math.max(max, m.timestamp ?? 0), 0);
         if (record.checkedThroughAt === undefined || newestMessageAt > record.checkedThroughAt) {
           const result = await classifyAndRoute(accountConfig, conversation, transcript);
+          record("stale", accountKey, conversation.session_id, result);
           record.checkedThroughAt = newestMessageAt;
           if (result.repo && result.actionable && result.kind !== "none") {
             matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
@@ -257,6 +280,20 @@ async function main() {
     "state/resolved-seen.json",
     JSON.stringify(Object.fromEntries(Object.entries(resolvedSeen).slice(-5000)), null, 2) + "\n"
   );
+
+  // Best-effort; never throws and no-ops unless EVENTS_REPO/EVENTS_TOKEN are set.
+  await emitEvent("scan", {
+    trigger: process.env.GITHUB_EVENT_NAME ?? null,
+    started_at: runStartedAt,
+    ended_at: new Date().toISOString(),
+    totals: {
+      fetched_resolved: totalFetched,
+      already_handled: alreadyHandled,
+      escalated: dedupedMatrix.length,
+      unmapped: skippedUnmapped.length,
+    },
+    conversations: scanRecords,
+  });
 
   if (GITHUB_STEP_SUMMARY) {
     const lines = [

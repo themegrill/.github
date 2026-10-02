@@ -7,7 +7,7 @@
 // the new note is already mentioned in an existing note -- a note can
 // reference two issues, and one being new is reason enough to still post.
 // Keyed on the URL, not wording. A note with no issue URL isn't deduped.
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { postNote, fetchRawMessages } from "./crisp-client.mjs";
 
 const [sessionId, noteArg] = process.argv.slice(2);
@@ -23,6 +23,18 @@ const rawNote = noteArg.startsWith("@") ? await readFile(noteArg.slice(1), "utf8
 
 // Safety net: normalize literal \n / \r\n sequences to real newlines in case any made it through.
 const note = rawNote.replace(/\\r\\n|\\n/g, "\n");
+
+// Leave a local copy for the workflow's event step, which parses the outcome
+// from it. Done here, before any Crisp call, so it exists even when the post is
+// skipped as a duplicate below. The event-writing token is deliberately NOT in
+// this process's env (this runs inside the agent) -- only a file path is.
+if (process.env.NOTE_RECORD_PATH) {
+  try {
+    await writeFile(process.env.NOTE_RECORD_PATH, note);
+  } catch (err) {
+    console.error(`Could not record note copy (non-fatal): ${err.message}`);
+  }
+}
 
 const creds = {
   identifier: process.env.CRISP_IDENTIFIER,

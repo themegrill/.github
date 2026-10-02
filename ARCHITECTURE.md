@@ -80,6 +80,7 @@ Also part of the scheduled run: `crisp-dedupe-active.mjs` checks active conversa
 | `scripts/crisp-post-note.mjs` | The agent's mandatory last step: note back in Crisp |
 | `scripts/summarize-investigation.mjs` | Turns the agent's raw output into a readable run summary |
 | `scripts/seed-escalated.mjs` | One-time seed when onboarding a new Crisp account |
+| `scripts/events.mjs`, `events-parse.mjs`, `emit-investigation-event.mjs`, `pricing.mjs` | Best-effort event log to a private data repo (for the dashboard); parse outcome from the Crisp note, estimate cost |
 | `scripts/github-client.mjs`, `openai-client.mjs` | Thin API helpers |
 | `scripts/propagate-*.mjs` | Roll workflows and secrets out to every repo |
 | `prompts/crisp-triage-agent.md` | The Stage 2 agent's instructions |
