@@ -142,7 +142,7 @@ tfoot td { border-bottom: 0; font-weight: 500; }
     <div class="runs" id="runs"></div>
   </section>
 
-  <p class="foot">Times are UTC. Cost is the Stage 1 classifier (estimated from tokens) plus the Stage 2 agent. "Already tracked" covers both a comment on a matching issue and an issue that already cites the conversation. "No result" means an investigation was escalated but never reported back, for example when a run was cancelled.</p>
+  <p class="foot">Times are in your local time zone. Cost is the Stage 1 classifier (estimated from tokens) plus the Stage 2 agent. "Already tracked" covers both a comment on a matching issue and an issue that already cites the conversation. "No result" means an investigation was escalated but never reported back, for example when a run was cancelled.</p>
 </div>
 
 <script>
@@ -162,8 +162,11 @@ tfoot td { border-bottom: 0; font-weight: 500; }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function ms(s) { return s ? new Date(s).getTime() : null; }
   var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  function fmtDate(t) { var x = new Date(t); return pad(x.getUTCDate()) + " " + MON[x.getUTCMonth()] + " " + x.getUTCFullYear(); }
-  function fmtClock(t) { var x = new Date(t); return pad(x.getUTCHours()) + ":" + pad(x.getUTCMinutes()) + ":" + pad(x.getUTCSeconds()); }
+  function fmtDate(t) { var x = new Date(t); return pad(x.getDate()) + " " + MON[x.getMonth()] + " " + x.getFullYear(); }
+  function fmtClock(t) { var x = new Date(t); return pad(x.getHours()) + ":" + pad(x.getMinutes()) + ":" + pad(x.getSeconds()); }
+  // Everything is shown in the viewer's own time zone, including where a "day" starts in the chart.
+  var TZ = ""; try { TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) {}
+  function localDay(t) { var x = new Date(t); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); }
   function fmtDur(s) { if (s == null) return "–"; return s < 60 ? s + "s" : Math.floor(s / 60) + "m " + pad(s % 60) + "s"; }
   function money(v) { return v == null ? "–" : "$" + v.toFixed(v < 0.1 ? 4 : 2); }
   function n(v) { return v == null ? "–" : Number(v).toLocaleString("en-US"); }
@@ -171,7 +174,7 @@ tfoot td { border-bottom: 0; font-weight: 500; }
 
   rows.forEach(function (r) { r._t = ms(r.ts) || ms(r.scan_ts) || generatedAt; r._p = product(r); });
 
-  $("updated").textContent = fmtDate(generatedAt) + " " + fmtClock(generatedAt).slice(0, 5);
+  $("updated").textContent = fmtDate(generatedAt) + " " + fmtClock(generatedAt).slice(0, 5) + (TZ ? " (" + TZ + ")" : "");
 
   if (!rows.length) {
     $("tiles").innerHTML = "";
@@ -202,10 +205,9 @@ tfoot td { border-bottom: 0; font-weight: 500; }
 
   // Cost per day, 14 days.
   var days = [];
-  var dayMs = 86400000;
-  var todayStart = Math.floor(generatedAt / dayMs) * dayMs;
-  for (var i = 13; i >= 0; i--) days.push({ ts: todayStart - i * dayMs, v: 0 });
-  rows.forEach(function (r) { var b = Math.floor(r._t / dayMs) * dayMs; days.forEach(function (d) { if (d.ts === b) d.v += r.cost; }); });
+  var g0 = new Date(generatedAt);
+  for (var i = 13; i >= 0; i--) days.push({ ts: new Date(g0.getFullYear(), g0.getMonth(), g0.getDate() - i).getTime(), v: 0 });
+  rows.forEach(function (r) { var b = localDay(r._t); days.forEach(function (d) { if (d.ts === b) d.v += r.cost; }); });
   var max = Math.max.apply(null, days.map(function (d) { return d.v; }));
   var step = max > 6 ? 2 : max > 2 ? 1 : max > 0.5 ? 0.5 : 0.1;
   var top = Math.ceil(max / step) * step || step;
@@ -220,7 +222,7 @@ tfoot td { border-bottom: 0; font-weight: 500; }
     var h = (d.v / top) * innerH, x = L + idx * bw + bw * 0.18, w = bw * 0.64, y2 = T + innerH - h;
     var last = idx === days.length - 1;
     svg += '<rect x="' + x.toFixed(1) + '" y="' + y2.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + Math.max(h, d.v > 0 ? 1 : 0).toFixed(1) + '" rx="2" fill="var(--accent)" opacity="' + (last ? 1 : 0.55) + '"><title>' + fmtDate(d.ts) + ': $' + d.v.toFixed(3) + '</title></rect>';
-    if (idx % 2 === 1 || last) svg += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle">' + new Date(d.ts).getUTCDate() + '</text>';
+    if (idx % 2 === 1 || last) svg += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle">' + new Date(d.ts).getDate() + '</text>';
   });
   $("cost-chart").innerHTML = svg;
 
