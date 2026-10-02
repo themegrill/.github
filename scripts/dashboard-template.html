@@ -1,0 +1,337 @@
+<meta charset="utf-8">
+<title>Triage Runs Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: summary tiles, cost + outcome charts, filter bar, then an expandable run list (one row per conversation per scan). */
+:root {
+  --bg: #f5f7f9;
+  --surface: #ffffff;
+  --fg: #16202a;
+  --muted: #5b6b7a;
+  --line: #dde3e9;
+  --accent: #2f4fd0;
+  --filed: #1b8350;
+  --tracked: #0b7285;
+  --nodefect: #5b6b7a;
+  --skip: #8a96a3;
+  --fail: #c62f3a;
+  --warn: #a8650a;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e141a; --surface: #151d25; --fg: #e4eaf0; --muted: #93a3b3; --line: #26323d;
+    --accent: #7b96ff; --filed: #4cc58a; --tracked: #4cc3d6; --nodefect: #9fb0c0; --skip: #7f8c99; --fail: #ff7a84; --warn: #e0a34a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e141a; --surface: #151d25; --fg: #e4eaf0; --muted: #93a3b3; --line: #26323d;
+  --accent: #7b96ff; --filed: #4cc58a; --tracked: #4cc3d6; --nodefect: #9fb0c0; --skip: #7f8c99; --fail: #ff7a84; --warn: #e0a34a;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 14px; line-height: 1.45; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 20px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 12px; font-weight: 600; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.sub { color: var(--muted); font-size: 13px; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; }
+.tile .lbl { color: var(--muted); font-size: 12px; }
+.tile .val { font-family: var(--mono); font-size: 22px; font-weight: 500; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.tile .note { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+.charts { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; min-width: 0; }
+.chart-svg { width: 100%; height: auto; display: block; }
+.chart-svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
+.stack { display: flex; height: 14px; border-radius: 3px; overflow: hidden; gap: 2px; margin-bottom: 14px; }
+.stack span { display: block; min-width: 3px; }
+.legend { display: flex; flex-direction: column; gap: 6px; }
+.legend div { display: flex; align-items: center; gap: 8px; }
+.legend .sw { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.legend .n { margin-left: auto; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.filters label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+select, input[type="search"] { font: inherit; font-size: 13px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; min-width: 0; }
+input[type="search"] { flex: 1 1 180px; font-family: var(--mono); font-size: 12px; }
+select:focus-visible, input:focus-visible, .run-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.count { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+.runs { display: flex; flex-direction: column; gap: 8px; }
+.run { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.run-head { all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: grid; grid-template-columns: 124px minmax(0, 1.2fr) minmax(0, 2fr) 72px 64px 20px; gap: 12px; align-items: center; padding: 10px 14px; }
+.run-head:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 4px; width: fit-content; color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent); }
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.o-filed { --c: var(--filed); } .o-tracked { --c: var(--tracked); } .o-no_defect { --c: var(--nodefect); } .o-skipped { --c: var(--skip); } .o-failed { --c: var(--fail); } .o-unrecorded { --c: var(--warn); }
+.when { display: flex; flex-direction: column; min-width: 0; }
+.when b { font-weight: 500; }
+.when small, .what small { color: var(--muted); font-size: 12px; }
+.what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.num { text-align: right; font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.chev { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform 0.15s; justify-self: end; }
+.run-head[aria-expanded="true"] .chev { transform: rotate(45deg); }
+.detail { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; padding: 6px 14px 16px; border-top: 1px solid var(--line); }
+.detail[hidden] { display: none; }
+ol.tl { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; }
+ol.tl li { display: grid; grid-template-columns: 64px 14px minmax(0, 1fr); gap: 10px; padding-bottom: 12px; position: relative; }
+ol.tl li:last-child { padding-bottom: 0; }
+ol.tl .t { font-family: var(--mono); font-size: 12px; color: var(--muted); padding-top: 1px; font-variant-numeric: tabular-nums; }
+ol.tl .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c, var(--skip)); margin-top: 5px; position: relative; z-index: 1; }
+ol.tl li:not(:last-child) .dot::after { content: ""; position: absolute; left: 4px; top: 11px; width: 1px; height: calc(100% + 15px); background: var(--line); }
+ol.tl .ev b { font-weight: 500; }
+ol.tl .ev p { margin: 2px 0 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+a { color: var(--accent); }
+.ref { font-family: var(--mono); font-size: 12px; }
+.tbl-wrap { overflow-x: auto; margin-top: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; }
+th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 8px 6px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td.r, th.r { text-align: right; padding-right: 0; }
+tfoot td { border-bottom: 0; font-weight: 500; }
+.links { margin-top: 12px; font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; }
+.empty { text-align: center; color: var(--muted); padding: 32px 16px; }
+.foot { color: var(--muted); font-size: 12px; }
+
+@media (max-width: 760px) {
+  .charts, .detail { grid-template-columns: minmax(0, 1fr); }
+  .run-head { grid-template-columns: minmax(0, 1fr) auto 16px; gap: 6px 12px; }
+  .run-head .what { grid-column: 1 / -1; grid-row: 2; white-space: normal; }
+  .run-head .when { grid-column: 1; grid-row: 1; }
+  .run-head .badge { grid-column: 2; grid-row: 1; }
+  .run-head .chev { grid-column: 3; grid-row: 1; }
+  .run-head .cost, .run-head .dur { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Triage runs</h1>
+    <div class="sub">Crisp triage · updated <span class="mono" id="updated"></span></div>
+  </header>
+
+  <section class="tiles" id="tiles" aria-label="Last 7 days"></section>
+
+  <section class="charts">
+    <div class="card">
+      <h2>Cost per day, 14 days</h2>
+      <svg class="chart-svg" id="cost-chart" viewBox="0 0 640 170" role="img" aria-label="Bar chart of daily triage cost over the last 14 days"></svg>
+    </div>
+    <div class="card">
+      <h2 id="mix-title">Outcomes</h2>
+      <div class="stack" id="stack"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="filters">
+      <label for="f-outcome">Outcome <select id="f-outcome"></select></label>
+      <label for="f-product">Product <select id="f-product"></select></label>
+      <input type="search" id="f-q" placeholder="Search session or issue" aria-label="Search session or issue">
+      <span class="count" id="count"></span>
+    </div>
+    <div class="runs" id="runs"></div>
+  </section>
+
+  <p class="foot">Times are UTC. Cost is the Stage 1 classifier (estimated from tokens) plus the Stage 2 agent. "Already tracked" covers both a comment on a matching issue and an issue that already cites the conversation. "No result" means an investigation was escalated but never reported back, for example when a run was cancelled.</p>
+</div>
+
+<script>
+(function () {
+  var DATA = /*__DATA__*/null;
+  var rows = (DATA && DATA.rows) || [];
+  var generatedAt = DATA && DATA.generated_at ? new Date(DATA.generated_at).getTime() : Date.now();
+
+  var ORDER = ["filed", "tracked", "no_defect", "failed", "unrecorded", "skipped"];
+  var OUT = { filed: "Issue filed", tracked: "Already tracked", no_defect: "No defect found", failed: "Failed", unrecorded: "No result", skipped: "Skipped" };
+  var COLOR = { filed: "var(--filed)", tracked: "var(--tracked)", no_defect: "var(--nodefect)", failed: "var(--fail)", unrecorded: "var(--warn)", skipped: "var(--skip)" };
+  var REASON = { cancelled: "Run was cancelled", no_note: "Agent did not finish its last step", agent_step_failed: "Agent step failed", not_actionable: "Classifier: not an actionable bug or feature", unmapped: "Could not map the conversation to a repo" };
+  var PATH = { stale: "Stale conversation", reopen: "Reopened after resolve", active_manual: "Manual note", resolved_manual: "Manual note (resolved)", instant_manual: "Instant trigger" };
+
+  function $(id) { return document.getElementById(id); }
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function ms(s) { return s ? new Date(s).getTime() : null; }
+  var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function fmtDate(t) { var x = new Date(t); return pad(x.getUTCDate()) + " " + MON[x.getUTCMonth()] + " " + x.getUTCFullYear(); }
+  function fmtClock(t) { var x = new Date(t); return pad(x.getUTCHours()) + ":" + pad(x.getUTCMinutes()) + ":" + pad(x.getUTCSeconds()); }
+  function fmtDur(s) { if (s == null) return "–"; return s < 60 ? s + "s" : Math.floor(s / 60) + "m " + pad(s % 60) + "s"; }
+  function money(v) { return v == null ? "–" : "$" + v.toFixed(v < 0.1 ? 4 : 2); }
+  function n(v) { return v == null ? "–" : Number(v).toLocaleString("en-US"); }
+  function product(r) { return r.repo ? r.repo.split("/").pop() : "unknown"; }
+
+  rows.forEach(function (r) { r._t = ms(r.ts) || ms(r.scan_ts) || generatedAt; r._p = product(r); });
+
+  $("updated").textContent = fmtDate(generatedAt) + " " + fmtClock(generatedAt).slice(0, 5);
+
+  if (!rows.length) {
+    $("tiles").innerHTML = "";
+    $("runs").innerHTML = '<div class="card empty">No events in this period yet. Rows appear after the next triage run.</div>';
+    $("cost-chart").parentNode.hidden = true; $("stack").parentNode.hidden = true;
+    return;
+  }
+
+  function count(list, o) { return list.filter(function (r) { return r.outcome === o; }).length; }
+
+  // Summary tiles: last 7 days.
+  var week = rows.filter(function (r) { return r._t > generatedAt - 7 * 86400000; });
+  var inv = week.filter(function (r) { return r.outcome !== "skipped" && r.outcome !== "unrecorded"; });
+  var wcost = week.reduce(function (a, r) { return a + r.cost; }, 0);
+  var durs = inv.filter(function (r) { return r.duration_s != null && r.outcome !== "failed"; });
+  var avg = durs.length ? Math.round(durs.reduce(function (a, r) { return a + r.duration_s; }, 0) / durs.length) : null;
+  var tiles = [
+    ["Conversations", week.length, "classified, last 7 days"],
+    ["Investigated", inv.length, count(week, "skipped") + " skipped by classifier"],
+    ["Issues filed", count(week, "filed"), count(week, "tracked") + " already tracked"],
+    ["No defect", count(week, "no_defect"), "agent found nothing to file"],
+    ["Failed or no result", count(week, "failed") + count(week, "unrecorded"), "need a look"],
+    ["Cost", "$" + wcost.toFixed(2), avg == null ? "no completed runs" : "avg " + fmtDur(avg) + " per investigation"]
+  ];
+  $("tiles").innerHTML = tiles.map(function (t) {
+    return '<div class="tile"><div class="lbl">' + t[0] + '</div><div class="val">' + t[1] + '</div><div class="note">' + t[2] + '</div></div>';
+  }).join("");
+
+  // Cost per day, 14 days.
+  var days = [];
+  var dayMs = 86400000;
+  var todayStart = Math.floor(generatedAt / dayMs) * dayMs;
+  for (var i = 13; i >= 0; i--) days.push({ ts: todayStart - i * dayMs, v: 0 });
+  rows.forEach(function (r) { var b = Math.floor(r._t / dayMs) * dayMs; days.forEach(function (d) { if (d.ts === b) d.v += r.cost; }); });
+  var max = Math.max.apply(null, days.map(function (d) { return d.v; }));
+  var step = max > 6 ? 2 : max > 2 ? 1 : max > 0.5 ? 0.5 : 0.1;
+  var top = Math.ceil(max / step) * step || step;
+  var W = 640, H = 170, L = 38, B = 22, T = 8, innerW = W - L - 4, innerH = H - B - T, bw = innerW / days.length;
+  var svg = "";
+  for (var g = 0; g <= top + 1e-9; g += step) {
+    var y = T + innerH - (g / top) * innerH;
+    svg += '<line x1="' + L + '" x2="' + (W - 4) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="var(--line)" stroke-width="1"/>';
+    svg += '<text x="' + (L - 6) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end">$' + (step < 1 ? g.toFixed(1) : Math.round(g)) + '</text>';
+  }
+  days.forEach(function (d, idx) {
+    var h = (d.v / top) * innerH, x = L + idx * bw + bw * 0.18, w = bw * 0.64, y2 = T + innerH - h;
+    var last = idx === days.length - 1;
+    svg += '<rect x="' + x.toFixed(1) + '" y="' + y2.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + Math.max(h, d.v > 0 ? 1 : 0).toFixed(1) + '" rx="2" fill="var(--accent)" opacity="' + (last ? 1 : 0.55) + '"><title>' + fmtDate(d.ts) + ': $' + d.v.toFixed(3) + '</title></rect>';
+    if (idx % 2 === 1 || last) svg += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle">' + new Date(d.ts).getUTCDate() + '</text>';
+  });
+  $("cost-chart").innerHTML = svg;
+
+  // Outcome mix over everything loaded.
+  var days0 = DATA.days || 30;
+  $("mix-title").textContent = "Outcomes, " + days0 + " days";
+  $("stack").innerHTML = ORDER.map(function (o) {
+    var c = count(rows, o); return c ? '<span style="flex:' + c + ';background:' + COLOR[o] + '" title="' + OUT[o] + ': ' + c + '"></span>' : "";
+  }).join("");
+  $("legend").innerHTML = ORDER.map(function (o) {
+    var c = count(rows, o); if (!c) return "";
+    return '<div><span class="sw" style="background:' + COLOR[o] + '"></span><span>' + OUT[o] + '</span><span class="n">' + c + ' · ' + Math.round(c / rows.length * 100) + '%</span></div>';
+  }).join("");
+
+  // Filters.
+  $("f-outcome").innerHTML = '<option value="">All</option>' + ORDER.filter(function (o) { return count(rows, o); }).map(function (o) { return '<option value="' + o + '">' + OUT[o] + '</option>'; }).join("");
+  var prods = []; rows.forEach(function (r) { if (prods.indexOf(r._p) < 0) prods.push(r._p); }); prods.sort();
+  $("f-product").innerHTML = '<option value="">All</option>' + prods.map(function (p) { return '<option>' + esc(p) + '</option>'; }).join("");
+
+  function issueLink(it) { return '<a class="ref" href="' + esc(it.url) + '" target="_blank" rel="noopener">' + esc(it.ref) + '</a>'; }
+
+  function timeline(r) {
+    var ev = [];
+    var scanT = ms(r.scan_ts);
+    if (scanT) {
+      ev.push({ t: scanT, c: "var(--skip)", label: "Picked up by scan", detail: (PATH[r.path] || r.path || "") + (r.account ? " · account " + r.account : "") });
+      var cl = r.classifier;
+      var manual = r.path === "active_manual" || r.path === "resolved_manual" || r.path === "instant_manual";
+      var label = manual ? "Manual trigger, classifier bypassed"
+        : r.outcome === "skipped" ? (r.reason === "unmapped" ? "Classified: could not map to a repo" : "Classified: not actionable")
+        : "Classified: actionable " + (r.kind || "");
+      ev.push({ t: scanT, c: "var(--accent)", label: label, detail: cl ? (cl.model || "") + " · " + n(cl.input_tokens) + " in / " + n(cl.output_tokens) + " out · " + money(cl.cost_usd) : "" });
+    }
+    if (r.outcome !== "skipped") {
+      var st = ms(r.ts);
+      if (r.outcome === "unrecorded") {
+        ev.push({ t: st, c: "var(--warn)", label: "No investigation result recorded", detail: "Escalated, but the job never reported back (run cancelled or the job died)." });
+      } else {
+        ev.push({ t: st, c: "var(--skip)", label: "Investigation started", detail: r.repo || "" });
+        if (r.agent) ev.push({ t: st, c: "var(--skip)", label: "Agent ran " + n(r.agent.steps) + " steps", detail: (r.agent.model || "") + " · " + (r.agent.tokens ? n(r.agent.tokens.input) + " in / " + n(r.agent.tokens.output) + " out · " : "") + money(r.agent.cost_usd) });
+        r.items.forEach(function (it) {
+          ev.push({ t: st && r.duration_s != null ? st + r.duration_s * 1000 : st, c: it.result === "filed" ? "var(--filed)" : "var(--tracked)", label: (it.result === "filed" ? "Filed a GitHub issue " : "Already tracked in ") + "@@" + it.ref + "@@", it: it, detail: it.kind === "bug" ? "Bug" : "Feature request" });
+        });
+        if (r.outcome === "no_defect") ev.push({ t: st, c: "var(--nodefect)", label: "No defect or feature request found", detail: "Note left in Crisp" });
+        if (r.outcome === "failed") ev.push({ t: st && r.duration_s != null ? st + r.duration_s * 1000 : st, c: "var(--fail)", label: "Failed", detail: REASON[r.reason] || r.reason || "" });
+        else if (r.outcome !== "unrecorded") ev.push({ t: st && r.duration_s != null ? st + r.duration_s * 1000 : st, c: "var(--skip)", label: "Run completed", detail: "Crisp note posted" });
+      }
+    } else if (r.reason) {
+      ev.push({ t: scanT, c: "var(--skip)", label: "Not investigated", detail: REASON[r.reason] || r.reason });
+    }
+    return ev.map(function (e) {
+      var label = esc(e.label).replace(/@@(.*?)@@/, function () { return e.it ? issueLink(e.it) : ""; });
+      return '<li style="--c:' + e.c + '"><span class="t">' + (e.t ? fmtClock(e.t) : "") + '</span><span class="dot"></span><div class="ev"><b>' + label + '</b>' + (e.detail ? '<p>' + esc(e.detail) + '</p>' : '') + '</div></li>';
+    }).join("");
+  }
+
+  function usage(r) {
+    var out = [], ti = 0, to = 0, tc = 0;
+    if (r.classifier) { var c = r.classifier; out.push(['classify', c.model, c.input_tokens, c.output_tokens, c.cost_usd]); }
+    if (r.agent) { var a = r.agent; out.push(['agent', a.model, a.tokens && a.tokens.input, a.tokens && a.tokens.output, a.cost_usd]); }
+    if (!out.length) return '<p class="sub">No usage recorded.</p>';
+    var body = out.map(function (o) { ti += o[2] || 0; to += o[3] || 0; tc += o[4] || 0; return '<tr><td>' + o[0] + '</td><td>' + esc(o[1] || "") + '</td><td class="r mono">' + n(o[2]) + '</td><td class="r mono">' + n(o[3]) + '</td><td class="r mono">' + money(o[4]) + '</td></tr>'; }).join("");
+    return '<div class="tbl-wrap"><table><thead><tr><th>Node</th><th>Model</th><th class="r">In</th><th class="r">Out</th><th class="r">Cost</th></tr></thead><tbody>' + body + '</tbody><tfoot><tr><td colspan="2">Total</td><td class="r mono">' + n(ti) + '</td><td class="r mono">' + n(to) + '</td><td class="r mono">' + money(tc) + '</td></tr></tfoot></table></div>';
+  }
+
+  var open = {};
+  function summaryLine(r) {
+    if (r.items && r.items.length) return r.items.map(function (i) { return esc(i.ref); }).join(", ");
+    if (r.outcome === "failed") return esc(REASON[r.reason] || "Failed");
+    if (r.outcome === "unrecorded") return "Escalated, no result recorded";
+    if (r.outcome === "skipped") return esc(REASON[r.reason] || "Skipped");
+    return "No defect or feature request found";
+  }
+
+  function render() {
+    var fo = $("f-outcome").value, fp = $("f-product").value, q = $("f-q").value.trim().toLowerCase();
+    var list = rows.filter(function (r) {
+      var hay = (r.session_id + " " + (r.items || []).map(function (i) { return i.ref; }).join(" ")).toLowerCase();
+      return (!fo || r.outcome === fo) && (!fp || r._p === fp) && (!q || hay.indexOf(q) > -1);
+    });
+    $("count").textContent = list.length + " of " + rows.length + " conversations";
+    if (!list.length) { $("runs").innerHTML = '<div class="card empty">No conversations match these filters.</div>'; return; }
+    $("runs").innerHTML = list.map(function (r) {
+      var isOpen = !!open[r.id];
+      var sid = r.session_id.replace(/^session_/, "").slice(0, 8);
+      return '<article class="run">' +
+        '<button class="run-head" aria-expanded="' + isOpen + '" aria-controls="d-' + esc(r.id) + '" data-id="' + esc(r.id) + '">' +
+        '<span class="badge o-' + r.outcome + '">' + OUT[r.outcome] + '</span>' +
+        '<span class="when"><b class="mono">' + fmtDate(r._t) + ' · ' + fmtClock(r._t).slice(0, 5) + '</b><small class="mono">session_' + esc(sid) + '</small></span>' +
+        '<span class="what">' + esc(r._p) + (r.kind ? ' · ' + esc(r.kind) : '') + '<br><small>' + summaryLine(r) + '</small></span>' +
+        '<span class="num cost">' + money(r.cost) + '</span><span class="num dur">' + fmtDur(r.duration_s) + '</span><span class="chev"></span></button>' +
+        '<div class="detail" id="d-' + esc(r.id) + '"' + (isOpen ? '' : ' hidden') + '>' +
+        '<div><h2 style="margin-top:12px">Timeline</h2><ol class="tl">' + timeline(r) + '</ol>' +
+        '<div class="links">' + (r.run_url ? '<a href="' + esc(r.run_url) + '" target="_blank" rel="noopener">Workflow run</a>' : '') + '<span class="mono sub">' + esc(r.session_id) + '</span></div></div>' +
+        '<div><h2 style="margin-top:12px">Model usage</h2>' + usage(r) + '</div>' +
+        '</div></article>';
+    }).join("");
+  }
+
+  $("runs").addEventListener("click", function (e) {
+    var b = e.target.closest(".run-head"); if (!b) return;
+    var id = b.getAttribute("data-id"); open[id] = !open[id];
+    b.setAttribute("aria-expanded", open[id]);
+    document.getElementById("d-" + id).hidden = !open[id];
+  });
+  ["f-outcome", "f-product"].forEach(function (id) { $(id).addEventListener("change", render); });
+  $("f-q").addEventListener("input", render);
+
+  // Open the most recent run that did something, so the first view shows a timeline.
+  var first = rows.filter(function (r) { return r.outcome === "filed" || r.outcome === "tracked"; })[0] || rows[0];
+  if (first) open[first.id] = true;
+  render();
+})();
+</script>

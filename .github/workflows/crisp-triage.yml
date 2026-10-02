@@ -70,6 +70,9 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # Verify against platform.openai.com/docs/models before trusting this default.
           CLASSIFY_MODEL: ${{ vars.CLASSIFY_MODEL || 'gpt-5-mini' }}
+          # Dashboard event log (private repo). Unset EVENTS_REPO = disabled.
+          EVENTS_REPO: ${{ vars.EVENTS_REPO }}
+          EVENTS_TOKEN: ${{ secrets.BOT_TOKEN_THEMEGRILL }}
         run: |
           node scripts/crisp-classify.mjs
           echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"

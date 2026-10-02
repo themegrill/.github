@@ -100,9 +100,17 @@ jobs:
       # agent to always call crisp-post-note.mjs as its last step -- if the
       # tool-call transcript never shows that call, treat it as a failure
       # regardless of exit code, instead of silently losing the conversation.
+      - name: Note start time (for the dashboard event)
+        id: started
+        run: echo "at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Investigate and act
+        id: act
         working-directory: workspace
         env:
+          # The agent only gets a file path to drop a copy of its note at --
+          # never the events token (see "Record investigation event" below).
+          NOTE_RECORD_PATH: /tmp/last-note.txt
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ startsWith(matrix.repo, 'themegrill/') && secrets.BOT_TOKEN_THEMEGRILL || secrets.BOT_TOKEN }}
           CRISP_IDENTIFIER: ${{ secrets[format('CRISP_{0}_IDENTIFIER', matrix.account)] }}
@@ -122,3 +130,22 @@ jobs:
             echo "::error::Agent never called crisp-post-note.mjs -- it did not complete its mandatory last step (likely died mid-run, e.g. an unrecovered rate limit). Session ${{ matrix.session_id }} was left with no GitHub-side outcome and no note back to the customer."
             exit 1
           fi
+
+      # Outside the agent step on purpose: the token that writes to the private
+      # events repo must not be in the environment of an LLM that reads customer
+      # transcripts. Runs even when the step above failed, so failures show up
+      # on the dashboard too. Never fails the job (see emit-investigation-event.mjs).
+      - name: Record investigation event
+        if: always()
+        continue-on-error: true
+        env:
+          EVENTS_REPO: ${{ vars.EVENTS_REPO }}
+          EVENTS_TOKEN: ${{ secrets.BOT_TOKEN_THEMEGRILL }}
+          SESSION_ID: ${{ matrix.session_id }}
+          REPO: ${{ matrix.repo }}
+          KIND: ${{ matrix.kind }}
+          ACCOUNT: ${{ matrix.account }}
+          STARTED_AT: ${{ steps.started.outputs.at }}
+          AGENT_STEP_OUTCOME: ${{ steps.act.outcome }}
+          MODEL: openai/${{ vars.INVESTIGATE_MODEL || 'gpt-5-mini' }}
+        run: node .bot-tools/scripts/emit-investigation-event.mjs /tmp/opencode-output.json /tmp/last-note.txt
