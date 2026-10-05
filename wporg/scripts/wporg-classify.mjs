@@ -13,7 +13,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { parseFeed, fetchText, TOPIC_URL_RE, topicSlug } from "./wporg-forum.mjs";
+import { parseFeed, parseResolvedUrls, fetchText, TOPIC_URL_RE, topicSlug } from "./wporg-forum.mjs";
 import { classifyTopic } from "./wporg-classifier.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -71,6 +71,17 @@ async function scan(type, slug, repo) {
     return;
   }
 
+  // Resolved topics are skipped (marked seen, never investigated); re-open one
+  // with the manual dispatch. A failed list-page fetch means "unknown", which
+  // is treated as not resolved -- better one extra investigation than a
+  // silent skip.
+  let resolved = new Set();
+  try {
+    resolved = parseResolvedUrls(await fetchText(`https://wordpress.org/support/${type}/${slug}/`));
+  } catch (e) {
+    console.warn(`::warning::${key}: could not read the resolved flags (${e.message}); treating all as unresolved`);
+  }
+
   for (const it of items) {
     if (state.topics[it.url]) continue;
     // Matrix values end up in workflow `run:` lines -- only accept the exact shape.
@@ -82,6 +93,10 @@ async function scan(type, slug, repo) {
     const ageDays = it.published ? (now - Date.parse(it.published)) / 864e5 : 0;
     if (ageDays > MAX_AGE_DAYS) {
       console.log(`${key}: ${it.url} -> skipped (older than ${MAX_AGE_DAYS}d)`);
+      continue;
+    }
+    if (resolved.has(it.url)) {
+      console.log(`${key}: ${it.url} -> skipped (resolved)`);
       continue;
     }
     if (matrix.length >= MAX_NEW_PER_RUN) {

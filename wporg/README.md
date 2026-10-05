@@ -17,7 +17,7 @@ flowchart LR
 ## Policy
 
 - Input: `https://wordpress.org/support/{plugin|theme}/<slug>/feed/` (public RSS, no auth), then the topic page for the full thread including replies. Our own support replies are labelled in the transcript.
-- Only **new** topics are looked at. The first run for a product only records what already exists (`seeded`), so onboarding never floods Stage 2 with a backlog. Topics older than 14 days that were never seen are marked seen and skipped. At most 10 escalations per run; the rest are marked seen and can be run manually.
+- Only **new** topics are looked at. The first run for a product only records what already exists (`seeded`), so onboarding never floods Stage 2 with a backlog. **Resolved topics are skipped** (read from the forum list page's resolved marker; if that page can't be fetched, nothing is treated as resolved). Topics created more than 14 days ago (`MAX_AGE_DAYS`, by creation date, not last reply) that were never seen are marked seen and skipped. At most 10 escalations per run; the rest are marked seen and can be run manually.
 - Same rules as Crisp Stage 2: bug and feature judged separately, existing issue -> comment (a feature needs an exact-capability match), otherwise new issue with `manual-qa-required` / `qa-verified`. Only a `product_bug` root cause may be filed; `conflict` / `host` / `user_error` / `undetermined` file nothing.
 - **Nothing is ever written to wordpress.org** (no official API, and bot replies there risk trouble with the plugin team). The agent's report goes to the job log / step summary only. There is no draft reply.
 - **Issue repo fallback**: the bot token (a fine-grained PAT) only reaches the repos it was granted. Before the agent runs, the job probes write access to the free repo (by creating the QA labels). If that fails, issues are filed in the product's `-pro` repo instead (`fallback_repos` in `config/products.json`, derived from `config/inbox-to-repo.json`), with that org's token, and the run logs a warning. Products with no pro repo fail loudly. Pro repos are private, so a fallback issue is only visible to the team. Fixing the PAT's repository list makes the fallback unnecessary.
@@ -49,6 +49,7 @@ Topics are written by the public. The agent prompt fences the topic as untrusted
 
 ## Known limits
 
+- A topic skipped as resolved is not looked at again, even if it is re-opened or gets new replies. Investigate it by hand with the manual dispatch (`topic_url` + `repo`).
 - A failed investigation is not retried by the next scan (the topic is already marked seen, same as Crisp's escalated list). Re-run it manually.
 - Replies posted after a topic is first seen are not re-examined; only new topics trigger work.
 - `libreria`, `ornatedecor`, `skincare` have no wp.org forum feed under those slugs and are not covered.
