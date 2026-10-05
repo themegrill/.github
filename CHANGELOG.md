@@ -12,6 +12,7 @@ Short, dated summary of notable fixes and changes. For the full "why," see `PHAS
 - Named `product_bug`, not `plugin_bug`: most repos here are themes (a first real run on `colormag-pro` was labeled `plugin_bug`). `parseCategory` still maps the old `plugin_bug` to `product_bug`. Evidence must show the cause, not just related code; hedged wording ("can break") means `undetermined`.
 - Note readability: the prompt now caps the summary, evidence and draft length and layout; `crisp-post-note.mjs` collapses runs of blank lines.
 - `crisp-post-note.mjs`: when every referenced issue was already noted earlier but the conversation never received a draft, it posts ONE reduced note (category, evidence, draft, no issue link) instead of skipping; once any note on the conversation carries a draft, the old skip applies again.
+- Stage 2 default model is now `gpt-5.4-mini` (was `gpt-5-mini`), set both as the workflow fallback and as the `INVESTIGATE_MODEL` repo variable. Reason: on the first real ticket `gpt-5-mini` labeled a weakly evidenced case `product_bug`; `gpt-5.4-mini` answered `undetermined`. Cost is about 2.7x per investigation (about $0.07 vs $0.026). To revert: delete the variable and set the workflow fallback back. `crisp-investigate-now` also takes an optional per-run `model` input for testing.
 - First real run (`crisp-investigate-now` from the branch) confirmed the flow end to end; the note format was then tightened as above.
 
 ## 2026-10-05 — triage schedule 3h -> 4h
