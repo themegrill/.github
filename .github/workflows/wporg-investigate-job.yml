@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       matrix:
-        description: "JSON array of {topic_url, slug, repo, kind} entries"
+        description: "JSON array of {topic_url, slug, repo, kind, fallback_repo} entries"
         required: true
         type: string
       model:
@@ -40,6 +40,32 @@ jobs:
           token: ${{ startsWith(matrix.repo, 'themegrill/') && secrets.BOT_TOKEN_THEMEGRILL || secrets.BOT_TOKEN }}
           path: workspace
 
+      # Where issues get filed. Normally matrix.repo; if the bot token cannot
+      # write issues there (a fine-grained PAT only reaches the repos it was
+      # granted), use matrix.fallback_repo instead. Probe = create the QA
+      # labels the agent needs anyway: 201 (created) or 422 (exists) means
+      # write access; anything else means no.
+      - name: Choose the issue repo
+        id: target
+        env:
+          PRIMARY: ${{ matrix.repo }}
+          FALLBACK: ${{ matrix.fallback_repo }}
+          GH_TOKEN: ${{ startsWith(matrix.repo, 'themegrill/') && secrets.BOT_TOKEN_THEMEGRILL || secrets.BOT_TOKEN }}
+        run: |
+          code=$(gh api -X POST "repos/$PRIMARY/labels" -f name=qa-verified -f color=0e8a16 \
+            -f description="AI-filed issue reproduced directly with high confidence" \
+            --include 2>/dev/null | head -1 | awk '{print $2}')
+          echo "primary label probe on $PRIMARY: HTTP ${code:-none}"
+          if [ "$code" = "201" ] || [ "$code" = "422" ]; then
+            echo "repo=$PRIMARY" >> "$GITHUB_OUTPUT"
+          elif [ -n "$FALLBACK" ]; then
+            echo "::warning::Token cannot write issues to $PRIMARY (HTTP ${code:-none}); filing in $FALLBACK instead."
+            echo "repo=$FALLBACK" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Token cannot write issues to $PRIMARY (HTTP ${code:-none}) and no fallback_repo is configured."
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -61,9 +87,9 @@ jobs:
       - name: Build the agent prompt
         id: prompt
         run: |
-          node .bot-tools/scripts/build-prompt.mjs \
+          node .bot-tools/wporg/scripts/wporg-build-prompt.mjs \
             .bot-tools/wporg/prompt.md \
-            "${{ matrix.repo }}" "${{ matrix.kind }}" "${{ matrix.slug }}" "${{ matrix.topic_url }}" "${{ steps.transcript.outputs.path }}" \
+            "${{ matrix.repo }}" "${{ steps.target.outputs.repo }}" "${{ matrix.kind }}" "${{ matrix.slug }}" "${{ matrix.topic_url }}" "${{ steps.transcript.outputs.path }}" \
             > prompt.md
           echo "path=$PWD/prompt.md" >> "$GITHUB_OUTPUT"
 
@@ -87,7 +113,7 @@ jobs:
         env:
           INVESTIGATE_MODEL_NAME: ${{ inputs.model || vars.INVESTIGATE_MODEL || 'gpt-5.4-mini' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GH_TOKEN: ${{ startsWith(matrix.repo, 'themegrill/') && secrets.BOT_TOKEN_THEMEGRILL || secrets.BOT_TOKEN }}
+          GH_TOKEN: ${{ startsWith(steps.target.outputs.repo, 'themegrill/') && secrets.BOT_TOKEN_THEMEGRILL || secrets.BOT_TOKEN }}
         run: |
           set +e
           opencode run "$(cat "${{ steps.prompt.outputs.path }}")" \
@@ -96,7 +122,20 @@ jobs:
             --format json \
             > /tmp/opencode-output.json
           node "$GITHUB_WORKSPACE/.bot-tools/scripts/summarize-investigation.mjs" /tmp/opencode-output.json >> "$GITHUB_STEP_SUMMARY"
-          if ! grep -q "wporg-done.mjs" /tmp/opencode-output.json; then
-            echo "::error::Agent never called wporg-done.mjs -- it did not finish (likely died mid-run). Topic ${{ matrix.topic_url }} has no recorded outcome; re-run via the wporg-triage manual dispatch."
+          # Only a real tool call counts; the prompt text also names the file.
+          if ! node "$GITHUB_WORKSPACE/.bot-tools/wporg/scripts/wporg-check-done.mjs" /tmp/opencode-output.json > /tmp/report.txt; then
+            echo "::error::Agent never ran wporg-done.mjs -- it did not finish (likely died mid-run). Topic ${{ matrix.topic_url }} has no recorded outcome; re-run via the wporg-triage manual dispatch."
             exit 1
           fi
+          echo "::group::Agent report"; cat /tmp/report.txt; echo "::endgroup::"
+
+      # Raw agent output, so the event shape wporg-check-done.mjs relies on can
+      # be checked against a real run. Contains public forum text only.
+      - name: Upload raw agent output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-output-${{ matrix.slug }}
+          path: /tmp/opencode-output.json
+          retention-days: 7
+          if-no-files-found: ignore

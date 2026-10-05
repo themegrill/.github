@@ -30,5 +30,28 @@
     "spacious": "themegrill/spacious",
     "suffice": "themegrill/suffice",
     "zakra": "themegrill/zakra"
+  },
+  "_fallback_repos": "Used ONLY when the bot token cannot write issues to the free repo (probed at run time by wporg-triage). Free repo -> its -pro repo, derived from config/inbox-to-repo.json. Pro repos are private; the issue only describes public forum content and free-edition code.",
+  "fallback_repos": {
+    "wpeverest/user-registration": "themegrill/user-registration-pro",
+    "wpeverest/everest-forms": "themegrill/everest-forms-pro",
+    "themegrill/accelerate": "themegrill/accelerate-pro",
+    "themegrill/ample": "themegrill/ample-pro",
+    "themegrill/cenote": "themegrill/cenote-pro",
+    "themegrill/colormag": "themegrill/colormag-pro",
+    "themegrill/colornews": "themegrill/colornews-pro",
+    "themegrill/envince": "themegrill/envince-pro",
+    "themegrill/esteem": "themegrill/esteem-pro",
+    "themegrill/estore": "themegrill/estore-pro",
+    "themegrill/fitclub": "themegrill/fitclub-pro",
+    "themegrill/flash": "themegrill/flash-pro",
+    "themegrill/foodhunt": "themegrill/foodhunt-pro",
+    "themegrill/freedom": "themegrill/freedom-pro",
+    "themegrill/himalayas": "themegrill/himalayas-pro",
+    "themegrill/radiate": "themegrill/radiate-pro",
+    "themegrill/spacious": "themegrill/spacious-pro",
+    "themegrill/suffice": "themegrill/suffice-pro",
+    "themegrill/zakra": "themegrill/zakra-pro",
+    "themegrill/blockart-blocks": "themegrill/blockart-blocks-pro"
   }
 }

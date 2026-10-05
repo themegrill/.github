@@ -2,6 +2,15 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-05 — wp.org triage: pro-repo fallback, stricter completion check
+
+Found on the first real run (`phone-field-country-flags-are-not-loading`, everest-forms): the agent concluded `product_bug` but "GitHub filing was blocked by repo permissions", and the job still went green.
+
+- Likely cause: `BOT_TOKEN` is a fine-grained PAT limited to the repos it was granted; the free repos may not be among them. Not confirmed (the token can't be read). Fix at the source by adding the free repos to the PAT.
+- Meanwhile the job probes write access and files in the `-pro` repo if the free repo is not writable (`fallback_repos` in `wporg/config/products.json`).
+- Completion check now requires an actual tool call to `wporg-done.mjs` (the old filename grep also matched the prompt text), prints the agent's report to the job log, and uploads the raw agent output as an artifact. The tool-event shape it relies on is not yet confirmed against a real run.
+- Prompt: a staff "could not reproduce" reply now counts against `product_bug`.
+
 ## 2026-10-05 — WordPress.org forum triage (new, self-contained in `wporg/`)
 
 - New pipeline: new topics on each free plugin/theme's wp.org support forum are classified, then an agent files a GitHub issue or comments on an existing match. Triggered by n8n (`repository_dispatch` `wporg-triage`, every 12h); no `schedule:` on purpose.

@@ -27,6 +27,16 @@ const state = JSON.parse(await readFile(STATE_PATH, "utf8"));
 const now = Date.now();
 const matrix = [];
 
+// fallback_repo is "" when none; the workflow probes write access and only
+// uses it if the token cannot write issues to `repo`.
+const entry = (topic_url, repo, kind) => ({
+  topic_url,
+  slug: topicSlug(topic_url),
+  repo,
+  kind,
+  fallback_repo: config.fallback_repos?.[repo] ?? "",
+});
+
 async function main() {
   const target = process.env.TARGET_TOPIC_URL;
   if (target) return manual(target);
@@ -99,7 +109,7 @@ function manual(url) {
   if (!["bug", "feature"].includes(kind)) throw new Error("TARGET_KIND must be bug or feature");
   const canonical = url.replace(/\/*$/, "/");
   state.topics[canonical] = new Date(now).toISOString();
-  matrix.push({ topic_url: canonical, slug: topicSlug(canonical), repo, kind });
+  matrix.push(entry(canonical, repo, kind));
 }
 
 try {
