@@ -2,6 +2,10 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-05 — wp.org triage files issues in the pro repo first
+
+Issues now go to the product's `-pro` repo when it has one, otherwise to the free repo (`issue_repos` in `wporg/config/products.json`, replacing `fallback_repos`). The agent still reads the free repo's code and searches both repos for existing issues (Crisp files free-edition issues in the free repos, so a match can live there). The old "probe the free repo, fall back to pro" behavior is gone: the job now only checks that the token can write to the chosen issue repo and fails loudly if not (the topic is already marked seen, so re-run it by hand).
+
 ## 2026-10-05 — wp.org triage: filing threshold, closed-issue search, `wporg-forum` label
 
 Interim policy after two false-positive issues on the same topic (#1243, #1244, both closed): the agent files only when its own confidence is above 50; below 70 or unreproduced it gets `manual-qa-required` (unchanged). Duplicate search now uses `--state all` so a match that a human already closed is not re-filed or commented on. Every filed issue also gets a `wporg-forum` label for bulk review, and the issue body gains a "Possible fix" section (suggestion only; "No fix proposed" when the diagnosis does not support one). Issues with confidence below 70 begin with a fixed "Low-confidence AI diagnosis -- verify manually" warning. Caveat: self-reported confidence is not calibrated (94 then 60 for the same wrong claim), so this does not stop a confidently wrong diagnosis; review the first issues by hand.

@@ -27,14 +27,14 @@ const state = JSON.parse(await readFile(STATE_PATH, "utf8"));
 const now = Date.now();
 const matrix = [];
 
-// fallback_repo is "" when none; the workflow probes write access and only
-// uses it if the token cannot write issues to `repo`.
+// `repo` = the free repo (its code is read); `issue_repo` = where issues are
+// filed: the -pro repo when the product has one, otherwise the free repo.
 const entry = (topic_url, repo, kind) => ({
   topic_url,
   slug: topicSlug(topic_url),
   repo,
   kind,
-  fallback_repo: config.fallback_repos?.[repo] ?? "",
+  issue_repo: config.issue_repos?.[repo] ?? repo,
 });
 
 async function main() {

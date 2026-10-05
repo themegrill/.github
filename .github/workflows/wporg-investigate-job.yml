@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       matrix:
-        description: "JSON array of {topic_url, slug, repo, kind, fallback_repo} entries"
+        description: "JSON array of {topic_url, slug, repo (free, code is read), kind, issue_repo (pro if the product has one, else free)} entries"
         required: true
         type: string
       model:
@@ -40,31 +40,27 @@ jobs:
           token: ${{ startsWith(matrix.repo, 'themegrill/') && secrets.BOT_TOKEN_THEMEGRILL || secrets.BOT_TOKEN }}
           path: workspace
 
-      # Where issues get filed. Normally matrix.repo; if the bot token cannot
-      # write issues there (a fine-grained PAT only reaches the repos it was
-      # granted), use matrix.fallback_repo instead. Probe = create the QA
-      # labels the agent needs anyway: 201 (created) or 422 (exists) means
-      # write access; anything else means no.
-      - name: Choose the issue repo
+      # Preflight on matrix.issue_repo (the -pro repo when the product has one,
+      # otherwise the free repo): fail loudly BEFORE spending an agent run if the
+      # token cannot write issues there. A fine-grained PAT only reaches the
+      # repos it was granted. Probe = create the QA label the agent needs
+      # anyway: 201 (created) or 422 (exists) means write access. There is
+      # deliberately no silent fallback to another repo.
+      - name: Check write access to the issue repo
         id: target
         env:
-          PRIMARY: ${{ matrix.repo }}
-          FALLBACK: ${{ matrix.fallback_repo }}
-          GH_TOKEN: ${{ startsWith(matrix.repo, 'themegrill/') && secrets.BOT_TOKEN_THEMEGRILL || secrets.BOT_TOKEN }}
+          ISSUE_REPO: ${{ matrix.issue_repo }}
+          GH_TOKEN: ${{ startsWith(matrix.issue_repo, 'themegrill/') && secrets.BOT_TOKEN_THEMEGRILL || secrets.BOT_TOKEN }}
         run: |
-          code=$(gh api -X POST "repos/$PRIMARY/labels" -f name=qa-verified -f color=0e8a16 \
+          code=$(gh api -X POST "repos/$ISSUE_REPO/labels" -f name=qa-verified -f color=0e8a16 \
             -f description="AI-filed issue reproduced directly with high confidence" \
             --include 2>/dev/null | head -1 | awk '{print $2}')
-          echo "primary label probe on $PRIMARY: HTTP ${code:-none}"
-          if [ "$code" = "201" ] || [ "$code" = "422" ]; then
-            echo "repo=$PRIMARY" >> "$GITHUB_OUTPUT"
-          elif [ -n "$FALLBACK" ]; then
-            echo "::warning::Token cannot write issues to $PRIMARY (HTTP ${code:-none}); filing in $FALLBACK instead."
-            echo "repo=$FALLBACK" >> "$GITHUB_OUTPUT"
-          else
-            echo "::error::Token cannot write issues to $PRIMARY (HTTP ${code:-none}) and no fallback_repo is configured."
+          echo "label probe on $ISSUE_REPO: HTTP ${code:-none}"
+          if [ "$code" != "201" ] && [ "$code" != "422" ]; then
+            echo "::error::Token cannot write issues to $ISSUE_REPO (HTTP ${code:-none}). Check the PAT's repository access; re-run via manual dispatch afterwards."
             exit 1
           fi
+          echo "repo=$ISSUE_REPO" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v4
         with:

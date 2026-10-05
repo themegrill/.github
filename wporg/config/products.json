@@ -31,8 +31,8 @@
     "suffice": "themegrill/suffice",
     "zakra": "themegrill/zakra"
   },
-  "_fallback_repos": "Used ONLY when the bot token cannot write issues to the free repo (probed at run time by wporg-triage). Free repo -> its -pro repo, derived from config/inbox-to-repo.json. Pro repos are private; the issue only describes public forum content and free-edition code.",
-  "fallback_repos": {
+  "_issue_repos": "Where GitHub issues are FILED for a product's forum topics. wp.org only hosts the free edition, so the agent reads the free repo's code, but issues go to the -pro repo when the product has one (derived from config/inbox-to-repo.json); products with no pro repo file in the free repo. Pro repos are private, so only the team sees these issues.",
+  "issue_repos": {
     "wpeverest/user-registration": "themegrill/user-registration-pro",
     "wpeverest/everest-forms": "themegrill/everest-forms-pro",
     "themegrill/accelerate": "themegrill/accelerate-pro",
