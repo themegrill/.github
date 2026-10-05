@@ -60,7 +60,7 @@ Replies marked "Plugin/Theme Support (our team)" are from our own support staff 
    ```
    gh issue create --repo {{ISSUE_REPO}} --title "..." --label bug-report,bug-report-triage,wporg-forum,<qa-label> --body-file <path>
    ```
-   Write the body file as real markdown with these `##` headings:
+   Write the body file as real markdown with these `##` headings (Summary, Reporter context, Reproduction notes, Diagnosis, Possible fix):
    ```markdown
    ## Summary
 
@@ -77,6 +77,10 @@ Replies marked "Plugin/Theme Support (our team)" are from our own support staff 
    ## Diagnosis
 
    The actual code path, with `file:line` references.
+
+   ## Possible fix
+
+   A short, concrete suggestion for a developer: which file/function to change and what the change would be, in a few sentences or a small code snippet. For a feature request, a possible approach and where it would fit. This is a suggestion only: you never edit the repo or open a PR. If you cannot propose a fix that your diagnosis supports, write "No fix proposed: <what is still unknown>" rather than guessing. Do not suggest a fix for a cause you have not substantiated.
 
    **Confidence:** NN/100 -- your honest estimate, not a default number.
 
