@@ -42,22 +42,32 @@ Replies marked "Plugin/Theme Support (our team)" are from our own support staff 
 
 2. **For each item you are allowed to act on, check for an existing issue first**, independently per item:
    ```
-   gh issue list --repo {{ISSUE_REPO}} --state open --search "<relevant keywords>"
+   gh issue list --repo {{ISSUE_REPO}} --state all --search "<relevant keywords>"
    ```
    If you find a genuine match, **first check whether that issue's own `Source:` line already references this topic** (`{{CONVERSATION_URL}}`) -- if so, it is not a recurrence; skip commenting and record it as "already tracked". Otherwise comment on the match (`gh issue comment <number> --repo {{ISSUE_REPO}} --body-file <path>`): for a bug, say another user reports the same problem; for a feature request, say another user asked for the same thing. Briefly state what this topic adds and link `[WordPress.org forum topic]({{CONVERSATION_URL}})`. Do not repeat the full diagnosis. Do not file a new issue for something already tracked.
 
+   **A closed match counts too.** Searching `--state all` also shows closed issues. If the genuine match is closed, a human already fixed or rejected it (several AI-filed issues were closed as wrong diagnoses): do not comment on it and do not file a new one; record it as "Previously closed: <url>" in step 5.
+
    **Feature requests need a stricter match than bugs**: only the exact same capability counts, not the same general area. A question about whether something exists or how to configure it is a how-to, not a match.
 
-3. **For each item with a genuine match nothing tracks yet**, choose the QA label: `manual-qa-required` if confidence is below 70/100 *or* you did not directly reproduce it, otherwise `qa-verified`. It must agree with the confidence and reproduction method in the body. Create the labels first, ignoring errors if they exist:
+3. **For each item with a genuine match nothing tracks yet**, first settle your honest confidence (0-100, see the body template). **File only if confidence is above 50.** At 50 or below, file nothing for that item and record "Not filed: confidence NN is at or below the filing threshold (50)" in step 5. Then choose the QA label: `manual-qa-required` if confidence is below 70/100 *or* you did not directly reproduce it, otherwise `qa-verified`. It must agree with the confidence and reproduction method in the body. Create the labels first, ignoring errors if they exist:
    ```
    gh label create manual-qa-required --repo {{ISSUE_REPO}} --color fbca04 --description "AI-filed issue below the confidence/reproduction bar -- verify before acting" 2>/dev/null || true
+   gh label create wporg-forum --repo {{ISSUE_REPO}} --color 5319e7 --description "Filed from a WordPress.org support forum topic" 2>/dev/null || true
    gh label create qa-verified --repo {{ISSUE_REPO}} --color 0e8a16 --description "AI-filed issue reproduced directly with high confidence" 2>/dev/null || true
    ```
-   Always pass `--repo {{ISSUE_REPO}}` to every `gh` command (the working directory is a checkout of `{{REPO}}`, which may not be the issue repo). Then file one issue per item (`bug-report` for a bug, `feature-request` for a feature; always also `bug-report-triage` and a QA label):
+   Always pass `--repo {{ISSUE_REPO}}` to every `gh` command (the working directory is a checkout of `{{REPO}}`, which may not be the issue repo). Then file one issue per item (`bug-report` for a bug, `feature-request` for a feature; always also `bug-report-triage`, `wporg-forum` and a QA label):
    ```
-   gh issue create --repo {{ISSUE_REPO}} --title "..." --label bug-report,bug-report-triage,<qa-label> --body-file <path>
+   gh issue create --repo {{ISSUE_REPO}} --title "..." --label bug-report,bug-report-triage,wporg-forum,<qa-label> --body-file <path>
    ```
-   Write the body file as real markdown with these `##` headings:
+   Write the body file as real markdown with these `##` headings (Summary, Reporter context, Reproduction notes, Diagnosis, Possible fix):
+   **If your confidence is below 70, the body must begin with this exact warning, before the Summary heading** (copy it verbatim, with the real number):
+   ```markdown
+   > [!WARNING]
+   > **Low-confidence AI diagnosis (NN/100) -- verify manually before acting.** This was filed automatically from a public forum topic and was not reproduced. The diagnosis may be a false positive or may miss the real cause (for example, other code could already handle what looks wrong, or the problem could be a conflict or hosting issue). Please check it properly by hand before spending time on a fix.
+   ```
+   Omit the warning only when confidence is 70 or above.
+
    ```markdown
    ## Summary
 
@@ -74,6 +84,10 @@ Replies marked "Plugin/Theme Support (our team)" are from our own support staff 
    ## Diagnosis
 
    The actual code path, with `file:line` references.
+
+   ## Possible fix
+
+   A short, concrete suggestion for a developer: which file/function to change and what the change would be, in a few sentences or a small code snippet. For a feature request, a possible approach and where it would fit. This is a suggestion only: you never edit the repo or open a PR. If you cannot propose a fix that your diagnosis supports, write "No fix proposed: <what is still unknown>" rather than guessing. Do not suggest a fix for a cause you have not substantiated.
 
    **Confidence:** NN/100 -- your honest estimate, not a default number.
 
@@ -94,6 +108,7 @@ Replies marked "Plugin/Theme Support (our team)" are from our own support staff 
    - Evidence: <ONE short line: at most two file:line references or one short quote; or what is missing>
    - Bug: <"Filed: <url>" or "Already tracked: <url>"; omit unless Category is product_bug>
    - Feature request: <"Filed: <url>" or "Already tracked: <url>"; omit if none>
+   - Not filed / Previously closed: <only if applicable: "Not filed: confidence NN is at or below the filing threshold (50)" or "Previously closed: <url>">
    ```
    This report goes only to the job log. Nothing is ever posted to wordpress.org.
 
