@@ -17,7 +17,7 @@ on:
     # Confirmed for real: two consecutive 3h slots (12:00 and 15:00 UTC)
     # never fired at all on 2026-09-29, no failed/skipped run logged either,
     # they just silently didn't happen.
-    - cron: "17 */3 * * *"
+    - cron: "17 */4 * * *"
   workflow_dispatch:
     inputs:
       skip_dedupe_check:

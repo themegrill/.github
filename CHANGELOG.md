@@ -2,6 +2,10 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-05 — triage schedule 3h -> 4h
+
+Measured the last 30 scheduled runs: gaps were never a steady 3h (median ~6.5h, up to 12h) because GitHub silently drops/delays scheduled runs. Changed cron to `17 */4 * * *` per request. This lowers the nominal frequency; it does not fix the dropped runs.
+
 ## 2026-10-05 — stopped conversations being re-investigated by their own notes
 
 A conversation (e.g. `session_bd0acc7b`) was investigated again every few hours with no new customer activity.

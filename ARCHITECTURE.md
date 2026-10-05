@@ -17,7 +17,7 @@ flowchart TB
   end
 
   subgraph B["Crisp triage"]
-    B1[Schedule every 3h<br/>or instant webhook] --> B2[Stage 1: scan Crisp<br/>crisp-classify.mjs]
+    B1[Schedule every 4h<br/>or instant webhook] --> B2[Stage 1: scan Crisp<br/>crisp-classify.mjs]
     B2 --> B3[Stage 2: investigate<br/>agent reads the repo]
     B3 --> B4[GitHub issue<br/>or comment on a match]
     B3 --> B5[One note back in Crisp]
