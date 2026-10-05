@@ -2,6 +2,10 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-05 — wp.org triage skips resolved topics
+
+New topics already marked resolved on the forum are marked seen and not investigated (the marker is on the forum list page, not in the RSS feed, so each product costs one extra request). Re-open one with the manual dispatch. If the list page can't be read, nothing is treated as resolved. Checked against the live everest-forms list: 28 of 30 feed topics resolved, the 2 newest open.
+
 ## 2026-10-05 — wp.org triage: first filed issue was a false positive; prompt tightened
 
 The first issue the pipeline filed (everest-forms phone flags, #1243 in the pro repo, now closed) blamed a non-existent stylesheet path. The agent stopped at the first mismatch: `register_styles()` registers the same handle with the correct path first and `enqueue_style()` skips re-registering, so the bad path is dead code. It also reported 94/100 confidence without reproducing anything, against a staff reply that they could not reproduce. The prompt now requires tracing every other registration/override of the same thing, and caps confidence at 60 unless the symptom was actually reproduced. Fallback to the pro repo and the report-in-log worked as intended on that run.

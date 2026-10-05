@@ -15,7 +15,7 @@ Read `wporg/README.md` first.
 ## Debugging "topic not investigated"
 
 - Classify log line `... -> not actionable`: classifier said no (conservative by design).
-- `skipped (older than 14d)` / `over per-run cap`: use the manual dispatch.
+- `skipped (resolved)` / `skipped (older than 14d)` / `over per-run cap`: use the manual dispatch to investigate it anyway.
 - Not in the log at all: it's in `state/seen.json` already, or the feed didn't list it (feed holds ~30 latest topics).
 - Investigation job failed with "never called wporg-done.mjs": agent died mid-run (rate limit); re-run manually.
 - Verify state/workflow changes actually took effect with the `verify-github-actions-change` skill, not by trusting a cached `gh api` GET.

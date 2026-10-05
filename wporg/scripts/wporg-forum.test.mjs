@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseFeed, parseTopicPage, htmlToText, formatTranscript, TOPIC_URL_RE } from "./wporg-forum.mjs";
+import { parseFeed, parseResolvedUrls, parseTopicPage, htmlToText, formatTranscript, TOPIC_URL_RE } from "./wporg-forum.mjs";
 
 const FEED = `<rss><channel><title>x</title>
 <item><guid>https://wordpress.org/support/topic/a-b/</guid><title>Fatal &#8211; error</title>
@@ -45,4 +45,12 @@ test("topic URL validation is strict", () => {
 
 test("htmlToText decodes entities once", () => {
   assert.equal(htmlToText("<p>a &amp;lt; b</p>"), "a &lt; b");
+});
+
+test("parseResolvedUrls finds only topics carrying the resolved marker", () => {
+  const html = `
+<a class="bbp-topic-permalink" href="https://wordpress.org/support/topic/open-one/">Open one</a>
+<a class="bbp-topic-permalink" href="https://wordpress.org/support/topic/done-one/"><span class="resolved" aria-label="Resolved" title="Topic is resolved."></span>Done one</a>`;
+  assert.deepEqual([...parseResolvedUrls(html)], ["https://wordpress.org/support/topic/done-one/"]);
+  assert.equal(parseResolvedUrls("<html></html>").size, 0);
 });

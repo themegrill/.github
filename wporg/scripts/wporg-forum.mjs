@@ -55,6 +55,18 @@ export function parseFeed(xml) {
   return items;
 }
 
+// The feed has no resolved flag; the forum LIST page does: a resolved topic's
+// link contains <span class="resolved" aria-label="Resolved">. Returns the set
+// of resolved topic URLs on that page. Unknown/unlisted topics are simply
+// absent from the set, i.e. treated as NOT resolved (investigate, don't skip).
+export function parseResolvedUrls(html) {
+  const resolved = new Set();
+  for (const m of html.matchAll(/<a class="bbp-topic-permalink" href="([^"]+)">([\s\S]*?)<\/a>/g)) {
+    if (/class="resolved"/.test(m[2])) resolved.add(m[1]);
+  }
+  return resolved;
+}
+
 // Returns [{ author, staff, text }]; first entry is the topic itself.
 export function parseTopicPage(html) {
   const posts = [];
