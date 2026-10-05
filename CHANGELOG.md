@@ -2,6 +2,19 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-05 — root-cause category and draft customer reply in the Stage 2 note
+
+- The agent now classifies each reported problem as `product_bug`, `conflict`, `host`, or `user_error` (or `undetermined` when evidence is insufficient, `not_applicable` for feature-request-only) and cites evidence. **Only `product_bug` may be filed or commented on in GitHub**; the other categories get only the Crisp note. Feature-request handling is unchanged.
+- The note gains `- Category:` / `- Evidence:` bullets and a `=== DRAFT REPLY ... === END DRAFT ===` block: a plain-language customer reply for staff to edit and send. The bot still never messages the customer.
+- `events-parse.mjs`: new `parseCategory` (enum only; evidence and draft text never reach the event log); the investigation event gains a `category` field. Older notes without a Category line parse as `unknown`, never throw. `parseNote` ignores everything from the draft marker on.
+- `crisp-post-note.mjs` only prints warnings for a missing category/draft, a non-`product_bug` note that reports a filed bug, or a draft containing URLs/issue numbers/file paths. It never blocks the post, so the "agent must leave a note" failure check is unchanged. Issue-URL dedupe ignores the draft block.
+- `undetermined` is a fifth value beyond the four requested; it is how "evidence is insufficient" is expressed, and it files nothing (consistent with the existing "cannot substantiate" rule).
+- Named `product_bug`, not `plugin_bug`: most repos here are themes (a first real run on `colormag-pro` was labeled `plugin_bug`). `parseCategory` still maps the old `plugin_bug` to `product_bug`. Evidence must show the cause, not just related code; hedged wording ("can break") means `undetermined`.
+- Note readability: the prompt now caps the summary, evidence and draft length and layout; `crisp-post-note.mjs` collapses runs of blank lines.
+- `crisp-post-note.mjs`: when every referenced issue was already noted earlier but the conversation never received a draft, it posts ONE reduced note (category, evidence, draft, no issue link) instead of skipping; once any note on the conversation carries a draft, the old skip applies again.
+- Stage 2 default model is now `gpt-5.4-mini` (was `gpt-5-mini`), set both as the workflow fallback and as the `INVESTIGATE_MODEL` repo variable. Reason: on the first real ticket `gpt-5-mini` labeled a weakly evidenced case `product_bug`; `gpt-5.4-mini` answered `undetermined`. Cost is about 2.7x per investigation (about $0.07 vs $0.026). To revert: delete the variable and set the workflow fallback back. `crisp-investigate-now` also takes an optional per-run `model` input for testing.
+- First real run (`crisp-investigate-now` from the branch) confirmed the flow end to end; the note format was then tightened as above.
+
 ## 2026-10-05 — triage schedule 3h -> 4h
 
 Measured the last 30 scheduled runs: gaps were never a steady 3h (median ~6.5h, up to 12h) because GitHub silently drops/delays scheduled runs. Changed cron to `17 */4 * * *` per request. This lowers the nominal frequency; it does not fix the dropped runs.

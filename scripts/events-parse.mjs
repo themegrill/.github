@@ -10,9 +10,45 @@ const ISSUE_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)/;
 // ignored so no model-written (customer-derived) text reaches the event log.
 // "Already tracked" covers both a comment on a matching issue and an issue that
 // already cites this conversation; the note can't tell those two apart.
+//
+// Newer notes also carry a "- Category: <value>" bullet and a trailing
+// "=== DRAFT REPLY ... ===" block (customer-facing draft for staff). Everything
+// from the draft marker on is cut off before any parsing: it is free text the
+// model wrote for the customer, so it must never be mistaken for bullet lines
+// or reach the event log.
+const DRAFT_START = /^[ \t]*={2,}[ \t]*DRAFT REPLY\b.*$/im;
+
+export function stripDraft(text) {
+  const s = String(text ?? "");
+  const m = DRAFT_START.exec(s);
+  return m ? s.slice(0, m.index) : s;
+}
+
+export const CATEGORIES = ["product_bug", "conflict", "host", "user_error"];
+
+// "plugin_bug" was this category's first name, before it was clear most repos
+// here are themes. Still accepted so notes/events written under it parse.
+const LEGACY_CATEGORY = { plugin_bug: "product_bug" };
+
+// Returns one of CATEGORIES, "undetermined" (agent said evidence was
+// insufficient), "not_applicable" (feature-request-only), or "unknown" (older
+// note with no Category line, or an unrecognized value). Never throws.
+export function parseCategory(text) {
+  const m = stripDraft(text).match(/^\s*[-*]\s*Category\s*:\s*(.*)$/im);
+  if (!m) return "unknown";
+  const v = m[1].toLowerCase().replace(/[`*]/g, "");
+  const known = CATEGORIES.find((c) => new RegExp(`\\b${c}\\b`).test(v));
+  if (known) return known;
+  if (/\bplugin_bug\b/.test(v)) return LEGACY_CATEGORY.plugin_bug;
+  if (/\bplugin_bug\b/.test(v)) return LEGACY_CATEGORY.plugin_bug;
+  if (/undetermined|insufficient/.test(v)) return "undetermined";
+  if (/not[_ ]applicable|n\/a|feature/.test(v)) return "not_applicable";
+  return "unknown";
+}
+
 export function parseNote(text) {
   const items = [];
-  for (const line of String(text ?? "").split("\n")) {
+  for (const line of stripDraft(text).split("\n")) {
     const m = line.match(/^\s*[-*]\s*(Bug|Feature request)\s*:\s*(.*)$/i);
     if (!m) continue;
     const kind = m[1].toLowerCase().startsWith("bug") ? "bug" : "feature";

@@ -22,7 +22,9 @@ if (!sessionId || !noteArg) {
 const rawNote = noteArg.startsWith("@") ? await readFile(noteArg.slice(1), "utf8") : noteArg;
 
 // Safety net: normalize literal \n / \r\n sequences to real newlines in case any made it through.
-const note = rawNote.replace(/\\r\\n|\\n/g, "\n");
+// Also collapse runs of blank lines (3+ newlines -> one blank line): models pad
+// sections with extra blank lines, which makes a Crisp note hard to scan.
+const note = rawNote.replace(/\\r\\n|\\n/g, "\n").replace(/[ \t]*\n(?:[ \t]*\n){2,}/g, "\n\n");
 
 // Leave a local copy for the workflow's event step, which parses the outcome
 // from it. Done here, before any Crisp call, so it exists even when the post is
@@ -42,7 +44,29 @@ const creds = {
   websiteId: process.env.CRISP_WEBSITE_ID,
 };
 
-const issueUrls = [...note.matchAll(/https:\/\/github\.com\/[^\s)]+\/issues\/\d+/g)].map((m) => m[0]);
+// The draft customer reply (marker format mirrors events-parse.mjs; this file
+// is copied alone to $HOME by the workflow, so it can't import that module) is
+// excluded from URL dedupe -- it must never contain issue links anyway.
+const DRAFT_MARKER = /^[ \t]*={2,}[ \t]*DRAFT REPLY\b/im;
+const draftStart = /^[ \t]*={2,}[ \t]*DRAFT REPLY\b.*$/im.exec(note);
+const report = draftStart ? note.slice(0, draftStart.index) : note;
+const draft = draftStart ? note.slice(draftStart.index) : "";
+const issueUrls = [...report.matchAll(/https:\/\/github\.com\/[^\s)]+\/issues\/\d+/g)].map((m) => m[0]);
+
+// Soft checks only, printed into the agent's tool output so it can see them.
+// Never block the post: the note is the mandatory last step and a lost note is
+// worse than a malformed one (the workflow fails the job if this isn't called).
+const rawCategory = report.match(/^\s*[-*]\s*Category\s*:\s*([`*\w ]+)/im)?.[1]?.toLowerCase().replace(/[`*]/g, "").trim().split(/\s+/)[0];
+const category = rawCategory === "plugin_bug" ? "product_bug" : rawCategory; // legacy name
+if (!category) console.warn("Warning: note has no '- Category:' line (expected product_bug | conflict | host | user_error | undetermined | not_applicable).");
+if (!draftStart) console.warn("Warning: note has no '=== DRAFT REPLY ... ===' block for staff.");
+else if (!/^[ \t]*={2,}[ \t]*END DRAFT\b/im.test(draft)) console.warn("Warning: draft reply block is missing its '=== END DRAFT ===' line.");
+if (category && category !== "product_bug" && /^\s*[-*]\s*Bug\s*:\s*(filed|already tracked)/im.test(report)) {
+  console.warn(`Warning: category is ${category} but the note reports a bug issue as filed/tracked; only product_bug may be filed or commented on.`);
+}
+if (/https?:\/\/|issues?\s*#\d+|#\d{2,}|[\w./-]+\.(php|js|jsx|ts|tsx|css):\d+/i.test(draft)) {
+  console.warn("Warning: draft reply contains a URL, issue number, or file path; customer drafts must not.");
+}
 
 async function main() {
   if (issueUrls.length > 0) {
@@ -50,6 +74,23 @@ async function main() {
     const existingNotes = messages.filter((m) => m.type === "note").map((m) => m.content ?? "");
     const allAlreadyNoted = issueUrls.every((url) => existingNotes.some((content) => content.includes(url)));
     if (allAlreadyNoted) {
+      // The skip above predates the draft reply. If this conversation has never
+      // received a draft (e.g. its earlier note was posted before drafts
+      // existed), skipping would silently drop the category and draft staff
+      // need. Post ONE reduced note then (no issue links, so no duplicate
+      // noise); once any note on the conversation carries a draft, the
+      // original skip applies again, so re-investigations don't pile up notes.
+      const hasEarlierDraft = existingNotes.some((content) => DRAFT_MARKER.test(content));
+      if (draftStart && !hasEarlierDraft) {
+        const reduced = note
+          .split("\n")
+          .filter((line) => !/^\s*[-*]\s*(Bug|Feature request)\s*:/i.test(line))
+          .join("\n")
+          .replace(/\n+([ \t]*=+[ \t]*DRAFT REPLY)/i, "\n- Issue already tracked in an earlier note on this conversation.\n\n$1");
+        await postNote(creds, sessionId, reduced);
+        console.log(`Note posted (reduced, draft only) to conversation ${sessionId} -- issue(s) already noted earlier`);
+        return;
+      }
       console.log(`Skipping note -- all referenced issue(s) (${issueUrls.join(", ")}) already mentioned in an existing note on conversation ${sessionId}`);
       return;
     }
