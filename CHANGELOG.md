@@ -2,6 +2,13 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-05 — WordPress.org forum triage (new, self-contained in `wporg/`)
+
+- New pipeline: new topics on each free plugin/theme's wp.org support forum are classified, then an agent files a GitHub issue or comments on an existing match. Triggered by n8n (`repository_dispatch` `wporg-triage`, every 12h); no `schedule:` on purpose.
+- Lives in `wporg/` plus `wporg-triage.yml` / `wporg-investigate-job.yml`. No Crisp file, state or workflow was changed; only generic helpers (`openai-client`, `build-prompt`, `summarize-investigation`) are reused.
+- Never posts to wordpress.org. First run per product only seeds existing topics. Public input is treated as untrusted in the prompt.
+- Not yet run for real: first step is the n8n node plus a manual dispatch on one known topic. See `wporg/README.md`.
+
 ## 2026-10-05 — root-cause category and draft customer reply in the Stage 2 note
 
 - The agent now classifies each reported problem as `product_bug`, `conflict`, `host`, or `user_error` (or `undetermined` when evidence is insufficient, `not_applicable` for feature-request-only) and cites evidence. **Only `product_bug` may be filed or commented on in GitHub**; the other categories get only the Crisp note. Feature-request handling is unchanged.

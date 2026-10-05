@@ -1,0 +1,34 @@
+{
+  "_comment": "WordPress.org support forum -> GitHub repo routing. wp.org only hosts the FREE edition, so every repo here is the free one. Keys are the wp.org slug (the part after /support/plugin/ or /support/theme/). Kept separate from config/inbox-to-repo.json on purpose; if a product's free repo changes, update both. Not listed because no wp.org forum feed exists under that slug (checked 2026-10-05): libreria, ornatedecor, skincare.",
+  "plugins": {
+    "everest-forms": "wpeverest/everest-forms",
+    "user-registration": "wpeverest/user-registration",
+    "easy-social-sharing": "themegrill/easy-social-sharing",
+    "social-icons": "themegrill/social-icons",
+    "blockart-blocks": "themegrill/blockart-blocks",
+    "themegrill-demo-importer": "themegrill/themegrill-demo-importer",
+    "maintenance-page": "themegrill/maintenance-page"
+  },
+  "themes": {
+    "accelerate": "themegrill/accelerate",
+    "ample": "themegrill/ample",
+    "cenote": "themegrill/cenote",
+    "colormag": "themegrill/colormag",
+    "colornews": "themegrill/colornews",
+    "elearning": "themegrill/elearning",
+    "envince": "themegrill/envince",
+    "esteem": "themegrill/esteem",
+    "estore": "themegrill/estore",
+    "explore": "themegrill/explore",
+    "fitclub": "themegrill/fitclub",
+    "flash": "themegrill/flash",
+    "foodhunt": "themegrill/foodhunt",
+    "freedom": "themegrill/freedom",
+    "himalayas": "themegrill/himalayas",
+    "masonic": "themegrill/masonic",
+    "radiate": "themegrill/radiate",
+    "spacious": "themegrill/spacious",
+    "suffice": "themegrill/suffice",
+    "zakra": "themegrill/zakra"
+  }
+}

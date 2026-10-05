@@ -1,0 +1,102 @@
+# Reusable Stage 2 for the WordPress.org forum pipeline: for each escalated
+# topic, check out the mapped repo and let an agent investigate, dedupe, and
+# file/comment on GitHub. Separate from crisp-investigate-job.yml on purpose
+# (different input trust level and no Crisp note); shared helpers live in
+# scripts/ and are reused as-is.
+name: Investigate wp.org forum topics
+
+on:
+  workflow_call:
+    inputs:
+      matrix:
+        description: "JSON array of {topic_url, slug, repo, kind} entries"
+        required: true
+        type: string
+      model:
+        description: "Optional model override for this run only; empty = vars.INVESTIGATE_MODEL, then gpt-5.4-mini"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  investigate:
+    name: Investigate (${{ matrix.slug }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4 # shared org-wide OpenAI TPM budget, same reason as Crisp
+      matrix:
+        include: ${{ fromJson(inputs.matrix) }}
+    steps:
+      - name: Check out bot tooling
+        uses: actions/checkout@v4
+        with:
+          path: .bot-tools
+
+      - name: Check out target repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          token: ${{ startsWith(matrix.repo, 'themegrill/') && secrets.BOT_TOKEN_THEMEGRILL || secrets.BOT_TOKEN }}
+          path: workspace
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
+
+      - name: Place the report helper (outside the repo tree)
+        run: |
+          mkdir -p "$HOME/tg-autopilot"
+          cp .bot-tools/wporg/scripts/wporg-done.mjs "$HOME/tg-autopilot/wporg-done.mjs"
+
+      - name: Fetch the topic
+        id: transcript
+        run: |
+          node .bot-tools/wporg/scripts/wporg-fetch-transcript.mjs "${{ matrix.topic_url }}" > transcript.txt
+          echo "path=$PWD/transcript.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Build the agent prompt
+        id: prompt
+        run: |
+          node .bot-tools/scripts/build-prompt.mjs \
+            .bot-tools/wporg/prompt.md \
+            "${{ matrix.repo }}" "${{ matrix.kind }}" "${{ matrix.slug }}" "${{ matrix.topic_url }}" "${{ steps.transcript.outputs.path }}" \
+            > prompt.md
+          echo "path=$PWD/prompt.md" >> "$GITHUB_OUTPUT"
+
+      - name: Configure OpenCode's OpenAI provider
+        working-directory: workspace
+        run: |
+          cat > opencode.json <<'JSON'
+          {
+            "provider": {
+              "openai": {
+                "options": { "apiKey": "{env:OPENAI_API_KEY}" }
+              }
+            }
+          }
+          JSON
+
+      # Same completion check as Crisp: opencode can exit 0 without finishing,
+      # so require evidence the agent reached its mandatory last step.
+      - name: Investigate and act
+        working-directory: workspace
+        env:
+          INVESTIGATE_MODEL_NAME: ${{ inputs.model || vars.INVESTIGATE_MODEL || 'gpt-5.4-mini' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GH_TOKEN: ${{ startsWith(matrix.repo, 'themegrill/') && secrets.BOT_TOKEN_THEMEGRILL || secrets.BOT_TOKEN }}
+        run: |
+          set +e
+          opencode run "$(cat "${{ steps.prompt.outputs.path }}")" \
+            --model "openai/$INVESTIGATE_MODEL_NAME" \
+            --auto \
+            --format json \
+            > /tmp/opencode-output.json
+          node "$GITHUB_WORKSPACE/.bot-tools/scripts/summarize-investigation.mjs" /tmp/opencode-output.json >> "$GITHUB_STEP_SUMMARY"
+          if ! grep -q "wporg-done.mjs" /tmp/opencode-output.json; then
+            echo "::error::Agent never called wporg-done.mjs -- it did not finish (likely died mid-run). Topic ${{ matrix.topic_url }} has no recorded outcome; re-run via the wporg-triage manual dispatch."
+            exit 1
+          fi

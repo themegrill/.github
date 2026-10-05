@@ -1,0 +1,99 @@
+# WordPress.org support forum -> AI -> GitHub issue.
+#
+# Fired by n8n (repository_dispatch `wporg-triage`, every 12h) -- deliberately
+# no `schedule:` here, so n8n is the single clock. workflow_dispatch is for
+# manual runs; fill topic_url + repo to force-investigate one topic.
+#
+# Never touches Crisp files or state. Never writes anything back to
+# wordpress.org. Design and onboarding: wporg/README.md.
+name: WP.org forum triage
+
+on:
+  repository_dispatch:
+    types: [wporg-triage]
+  workflow_dispatch:
+    inputs:
+      topic_url:
+        description: "Optional: investigate exactly this topic (https://wordpress.org/support/topic/<slug>/), skipping the scan and classifier"
+        required: false
+        type: string
+        default: ""
+      repo:
+        description: "Required with topic_url: target repo, e.g. themegrill/colormag (must be listed in wporg/config/products.json)"
+        required: false
+        type: string
+        default: ""
+      kind:
+        description: "With topic_url: bug or feature"
+        required: false
+        type: choice
+        options: [bug, feature]
+        default: bug
+      model:
+        description: "Optional model override for this run only"
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: wporg-triage
+  cancel-in-progress: false
+
+jobs:
+  classify:
+    name: Scan forums and classify
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.classify.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.BOT_TOKEN_THEMEGRILL }} # needs contents:write to commit state
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Classify
+        id: classify
+        env:
+          TARGET_TOPIC_URL: ${{ inputs.topic_url }}
+          TARGET_REPO: ${{ inputs.repo }}
+          TARGET_KIND: ${{ inputs.kind }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLASSIFY_MODEL: ${{ vars.CLASSIFY_MODEL || 'gpt-5-mini' }}
+        run: |
+          node wporg/scripts/wporg-classify.mjs
+          echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"
+
+      # Same retry pattern as crisp-triage.yml (see its comment for why
+      # `-X ours` and `set +e`). Only wporg state is staged, so this can never
+      # touch Crisp state.
+      - name: Commit advanced state
+        run: |
+          set +e
+          git config user.name "tg-autopilot"
+          git config user.email "tg-autopilot@users.noreply.github.com"
+          git add wporg/state/seen.json
+          git diff --cached --quiet || git commit -m "Advance wp.org triage state [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            git push && exit 0
+            echo "Push rejected (attempt $attempt/5), rebasing onto origin/master (preferring our state on conflict) and retrying..."
+            git fetch origin master
+            if ! git rebase -X ours origin/master; then
+              echo "::error::Rebase failed outright -- aborting"
+              git rebase --abort
+              exit 1
+            fi
+          done
+          echo "::error::Failed to push advanced state after 5 attempts"
+          exit 1
+
+  investigate:
+    needs: classify
+    if: needs.classify.outputs.matrix != '[]'
+    uses: ./.github/workflows/wporg-investigate-job.yml
+    with:
+      matrix: ${{ needs.classify.outputs.matrix }}
+      model: ${{ inputs.model || '' }}
+    secrets: inherit

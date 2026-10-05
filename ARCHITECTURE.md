@@ -67,6 +67,10 @@ Also part of the scheduled run: `crisp-dedupe-active.mjs` checks active conversa
 
 `crisp-investigate-now.yml` is the instant path. A Crisp webhook (via n8n) fires `repository_dispatch`, and `crisp-resolve-dispatch.mjs` resolves that one session to a repo, then runs the same Stage 2.
 
+## 2b. WordPress.org forum triage
+
+A fourth lane, fully separate from Crisp (own workflows, state, prompt) and documented in [wporg/README.md](wporg/README.md): n8n dispatches every 12h, `wporg-classify.mjs` reads each product's public forum feed, new topics are classified, and the agent files or comments on a GitHub issue. Nothing is written back to wordpress.org.
+
 ## 3. Where each file fits
 
 | File | Role |
