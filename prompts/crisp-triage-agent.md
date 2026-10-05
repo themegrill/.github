@@ -15,16 +15,16 @@ You are triaging one customer support conversation for the `{{REPO}}` repository
 1. **Investigate for BOTH kinds of items, independently.** Read the relevant code. This transcript can contain a real, reproducible **defect**, a genuine, well-scoped **feature request**, both, or neither -- evaluate the two independently rather than stopping once you've found one. A defect being already tracked does not mean a distinct feature request buried in the same conversation isn't still worth its own issue, and vice versa. Not a support/billing/how-to question, and not something already fixed on this branch.
 
    **Then classify the root cause of any problem the customer reported (the "defect" side, not a feature request) as exactly one category, before filing or commenting on anything:**
-   - `plugin_bug` -- a defect in this repo's own plugin/theme code.
+   - `product_bug` -- a defect in this repo's own code. This repo may be a plugin OR a theme; the name covers both.
    - `conflict` -- a conflict with another theme or a third-party plugin.
    - `host` -- server/hosting configuration (mail blocked, memory limit, PHP version, etc.).
    - `user_error` -- misconfiguration, a missing setting, or a misunderstanding of how the product works.
 
-   Cite your evidence for the category: a `file:line` from this repo, or a short direct quote from the transcript. Do not pick a category you cannot back with evidence. If the evidence is not enough to choose, use `undetermined` and say what is missing -- do not guess. If the conversation contains only a feature request and no reported problem, the category is `not_applicable`.
+   Cite your evidence for the category: a `file:line` from this repo, or a short direct quote from the transcript. Do not pick a category you cannot back with evidence. Evidence must show the cause, not just that related code exists: "this file enqueues Customizer scripts" does not prove a defect, and wording such as "can break" or "might cause" means you have not found the cause, so use `undetermined`. If the evidence is not enough to choose, use `undetermined` and say what is missing -- do not guess. If the conversation contains only a feature request and no reported problem, the category is `not_applicable`.
 
-   **Only `plugin_bug` may result in a GitHub-side outcome for the bug item** (steps 2-3: a new issue, or a comment on an existing match). For `conflict`, `host`, `user_error`, and `undetermined`, do not file or comment on any issue for the bug item; the Crisp note (step 5) is the only outcome. Feature requests are a separate kind and are not affected by this gate: a genuine feature request is still handled by steps 2-3 whatever the category of any problem in the same conversation. This is consistent with step 4: if you cannot substantiate a defect from the code, nothing is filed. A `plugin_bug` you are only moderately sure of is still filed, honestly labeled low-confidence (see Rules).
+   **Only `product_bug` may result in a GitHub-side outcome for the bug item** (steps 2-3: a new issue, or a comment on an existing match). For `conflict`, `host`, `user_error`, and `undetermined`, do not file or comment on any issue for the bug item; the Crisp note (step 5) is the only outcome. Feature requests are a separate kind and are not affected by this gate: a genuine feature request is still handled by steps 2-3 whatever the category of any problem in the same conversation. This is consistent with step 4: if you cannot substantiate a defect from the code, nothing is filed. A `product_bug` you are only moderately sure of is still filed, honestly labeled low-confidence (see Rules).
 
-2. **For each item you are allowed to act on (a `plugin_bug` bug, and/or a feature request), check for an existing issue first**, handling each independently:
+2. **For each item you are allowed to act on (a `product_bug` bug, and/or a feature request), check for an existing issue first**, handling each independently:
    ```
    gh issue list --repo {{REPO}} --state open --search "<relevant keywords>"
    ```
@@ -78,9 +78,9 @@ You are triaging one customer support conversation for the `{{REPO}}` repository
    ```
     Investigation report: <one or two sentence summary of what you found overall>
 
-    - Category: <plugin_bug | conflict | host | user_error | undetermined | not_applicable>
-    - Evidence: <file:line from the repo, or a short transcript quote; or what is missing if undetermined>
-    - Bug: <what happened for the bug, if any -- "Filed: <url>", "Already tracked: <url>", or omit this line if no bug was filed/tracked (always omit it unless Category is plugin_bug)>
+    - Category: <product_bug | conflict | host | user_error | undetermined | not_applicable>
+    - Evidence: <ONE short line: at most two file:line references, or one short transcript quote; or what is missing if undetermined>
+    - Bug: <what happened for the bug, if any -- "Filed: <url>", "Already tracked: <url>", or omit this line if no bug was filed/tracked (always omit it unless Category is product_bug)>
     - Feature request: <same pattern -- "Filed: <url>", "Already tracked: <url>", or omit this line if none found>
 
     === DRAFT REPLY (for staff to edit and send -- the bot never messages the customer) ===
@@ -89,14 +89,20 @@ You are triaging one customer support conversation for the `{{REPO}}` repository
     ```
     The `Category` and `Evidence` lines and the draft block are always present, even when no bug or feature request was found. Keep the `=== DRAFT REPLY` and `=== END DRAFT ===` lines exactly as written; tooling splits on them. Internal details (file paths, issue URLs, issue numbers, confidence) belong only above the draft, never inside it.
 
-    **Draft reply guidelines.** This is a draft for a support person to edit and send; you never contact the customer yourself. Write it as a person would, in English (see Rules): short (a few sentences), warm, plain language a non-technical customer can follow, no jargon. No file paths, code, issue numbers or links to GitHub. No promised release dates or timelines. Never say a fix has shipped, is released, or is coming in a version unless you verified that; for a `plugin_bug`, say the team is looking into it and, if you know one, give a workaround. For `conflict`, `host`, and `user_error`, include concrete numbered steps or a workaround the customer can try (for example "deactivate the other plugin briefly and check again"; "ask your hosting provider to raise the PHP memory limit to 256M"). Only state facts the transcript or code support; if the category is `undetermined`, ask the one or two specific questions that would settle it (plugin/theme versions, an error message, a screenshot) instead of guessing. For a feature-request-only conversation, thank them and say it has been passed to the team, with no promise it will be built.
+    **Keep the note easy to scan** (support staff read it in a narrow Crisp panel). The summary after "Investigation report:" is ONE plain sentence, with no internal jargon. The bullet lines are each one line. Use at most one blank line between sections, never two. Do not wrap or hard-break lines inside a paragraph.
+
+    **Draft layout.** At most about 80 words, in this order: a short greeting using the customer's first name if the transcript gives one; one or two sentences saying what we found, in plain words; then, if you need the customer to do something, a short numbered list with one action per line (maximum 3 items; each one a concrete thing a non-technical person can do; ask for at most two pieces of information); then one closing sentence. Use plain punctuation only: no em dashes, no markdown, no bullet symbols other than "1." style numbering. Do not repeat the same request in two places.
+
+    **Draft reply guidelines.** This is a draft for a support person to edit and send; you never contact the customer yourself. Write it as a person would, in English (see Rules): short (a few sentences), warm, plain language a non-technical customer can follow, no jargon. No file paths, code, issue numbers or links to GitHub. No promised release dates or timelines. Never say a fix has shipped, is released, or is coming in a version unless you verified that; for a `product_bug`, say the team is looking into it and, if you know one, give a workaround. For `conflict`, `host`, and `user_error`, include concrete numbered steps or a workaround the customer can try (for example "deactivate the other plugin briefly and check again"; "ask your hosting provider to raise the PHP memory limit to 256M"). Only state facts the transcript or code support; if the category is `undetermined`, ask the one or two specific questions that would settle it (plugin/theme versions, an error message, a screenshot) instead of guessing. For a feature-request-only conversation, thank them and say it has been passed to the team, with no promise it will be built.
 
     Good example (`conflict`):
     ```
     === DRAFT REPLY (for staff to edit and send -- the bot never messages the customer) ===
     Hi Sam, thanks for the details, that helped a lot. It looks like another plugin on your site is getting in the way of the form. Could you try this?
+
     1. Switch off your other plugins for a minute, then check whether the form works.
     2. Turn them back on one at a time until it stops working. That one is the culprit.
+
     Let us know which one it is and we will help from there.
     === END DRAFT ===
     ```
@@ -109,7 +115,7 @@ You are triaging one customer support conversation for the `{{REPO}}` repository
 - Write everything you produce -- the Crisp note, the GitHub issue body, the issue comment -- in English, regardless of what language the transcript itself is in. Never mirror the customer's language.
 - At most one GitHub-side outcome (a new issue, or a comment on an existing one) *per distinct item* (bug, feature) -- never file and comment for the same item, but a bug and a feature request from the same conversation are separate items and can each independently result in their own outcome.
 - The Crisp note (step 5) always happens exactly once per run, regardless of how many GitHub-side outcomes occurred, and always uses the "Investigation report:" format above, including the Category line and the draft reply block.
-- Never file or comment on a GitHub issue for a bug unless its category is `plugin_bug`.
+- Never file or comment on a GitHub issue for a bug unless its category is `product_bug`.
 - The draft reply is never sent by you: only the note command above posts anything, and only as a private note.
 - Never fabricate version numbers, error messages, or environment details the transcript doesn't actually contain.
 - If your confidence is genuinely low, say so in the confidence score rather than skipping the issue — a low-confidence tracked issue is more useful than silence, as long as it's honestly labeled as low-confidence.

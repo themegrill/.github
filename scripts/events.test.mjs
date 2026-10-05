@@ -101,19 +101,20 @@ test("parseNote: no bullets means no_defect", () => {
 const DRAFT = [
   "=== DRAFT REPLY (for staff to edit and send -- the bot never messages the customer) ===",
   "- Bug: Filed: https://github.com/org/p/issues/1",
-  "- Category: plugin_bug",
+  "- Category: product_bug",
   "=== END DRAFT ===",
 ].join("\n");
 
 test("parseCategory: new-format notes", () => {
-  const bug = ["Investigation report: x", "", "- Category: plugin_bug", "- Evidence: a.php:3", "- Bug: Filed: https://github.com/org/p/issues/5", "", DRAFT].join("\n");
-  assert.equal(parseCategory(bug), "plugin_bug");
+  const bug = ["Investigation report: x", "", "- Category: product_bug", "- Evidence: a.php:3", "- Bug: Filed: https://github.com/org/p/issues/5", "", DRAFT].join("\n");
+  assert.equal(parseCategory(bug), "product_bug");
   assert.deepEqual(parseNote(bug).items.map((i) => i.ref), ["org/p#5"]);
   const conflict = ["Investigation report: x", "- Category: `conflict`", "", DRAFT].join("\n");
   assert.equal(parseCategory(conflict), "conflict");
   assert.equal(parseNote(conflict).outcome, "no_defect"); // bullets inside the draft are ignored
   assert.equal(parseCategory("- Category: undetermined (need version)"), "undetermined");
   assert.equal(parseCategory("- Category: not_applicable"), "not_applicable");
+  assert.equal(parseCategory("- Category: plugin_bug"), "product_bug"); // legacy name still parses
 });
 
 test("parseCategory: old/garbled notes are unknown, never throw", () => {

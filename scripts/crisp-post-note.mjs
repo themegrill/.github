@@ -22,7 +22,9 @@ if (!sessionId || !noteArg) {
 const rawNote = noteArg.startsWith("@") ? await readFile(noteArg.slice(1), "utf8") : noteArg;
 
 // Safety net: normalize literal \n / \r\n sequences to real newlines in case any made it through.
-const note = rawNote.replace(/\\r\\n|\\n/g, "\n");
+// Also collapse runs of blank lines (3+ newlines -> one blank line): models pad
+// sections with extra blank lines, which makes a Crisp note hard to scan.
+const note = rawNote.replace(/\\r\\n|\\n/g, "\n").replace(/[ \t]*\n(?:[ \t]*\n){2,}/g, "\n\n");
 
 // Leave a local copy for the workflow's event step, which parses the outcome
 // from it. Done here, before any Crisp call, so it exists even when the post is
@@ -54,12 +56,13 @@ const issueUrls = [...report.matchAll(/https:\/\/github\.com\/[^\s)]+\/issues\/\
 // Soft checks only, printed into the agent's tool output so it can see them.
 // Never block the post: the note is the mandatory last step and a lost note is
 // worse than a malformed one (the workflow fails the job if this isn't called).
-const category = report.match(/^\s*[-*]\s*Category\s*:\s*([`*\w ]+)/im)?.[1]?.toLowerCase().replace(/[`*]/g, "").trim().split(/\s+/)[0];
-if (!category) console.warn("Warning: note has no '- Category:' line (expected plugin_bug | conflict | host | user_error | undetermined | not_applicable).");
+const rawCategory = report.match(/^\s*[-*]\s*Category\s*:\s*([`*\w ]+)/im)?.[1]?.toLowerCase().replace(/[`*]/g, "").trim().split(/\s+/)[0];
+const category = rawCategory === "plugin_bug" ? "product_bug" : rawCategory; // legacy name
+if (!category) console.warn("Warning: note has no '- Category:' line (expected product_bug | conflict | host | user_error | undetermined | not_applicable).");
 if (!draftStart) console.warn("Warning: note has no '=== DRAFT REPLY ... ===' block for staff.");
 else if (!/^[ \t]*={2,}[ \t]*END DRAFT\b/im.test(draft)) console.warn("Warning: draft reply block is missing its '=== END DRAFT ===' line.");
-if (category && category !== "plugin_bug" && /^\s*[-*]\s*Bug\s*:\s*(filed|already tracked)/im.test(report)) {
-  console.warn(`Warning: category is ${category} but the note reports a bug issue as filed/tracked; only plugin_bug may be filed or commented on.`);
+if (category && category !== "product_bug" && /^\s*[-*]\s*Bug\s*:\s*(filed|already tracked)/im.test(report)) {
+  console.warn(`Warning: category is ${category} but the note reports a bug issue as filed/tracked; only product_bug may be filed or commented on.`);
 }
 if (/https?:\/\/|issues?\s*#\d+|#\d{2,}|[\w./-]+\.(php|js|jsx|ts|tsx|css):\d+/i.test(draft)) {
   console.warn("Warning: draft reply contains a URL, issue number, or file path; customer drafts must not.");

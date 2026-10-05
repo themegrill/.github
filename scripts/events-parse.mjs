@@ -24,7 +24,11 @@ export function stripDraft(text) {
   return m ? s.slice(0, m.index) : s;
 }
 
-export const CATEGORIES = ["plugin_bug", "conflict", "host", "user_error"];
+export const CATEGORIES = ["product_bug", "conflict", "host", "user_error"];
+
+// "plugin_bug" was this category's first name, before it was clear most repos
+// here are themes. Still accepted so notes/events written under it parse.
+const LEGACY_CATEGORY = { plugin_bug: "product_bug" };
 
 // Returns one of CATEGORIES, "undetermined" (agent said evidence was
 // insufficient), "not_applicable" (feature-request-only), or "unknown" (older
@@ -35,6 +39,8 @@ export function parseCategory(text) {
   const v = m[1].toLowerCase().replace(/[`*]/g, "");
   const known = CATEGORIES.find((c) => new RegExp(`\\b${c}\\b`).test(v));
   if (known) return known;
+  if (/\bplugin_bug\b/.test(v)) return LEGACY_CATEGORY.plugin_bug;
+  if (/\bplugin_bug\b/.test(v)) return LEGACY_CATEGORY.plugin_bug;
   if (/undetermined|insufficient/.test(v)) return "undetermined";
   if (/not[_ ]applicable|n\/a|feature/.test(v)) return "not_applicable";
   return "unknown";
