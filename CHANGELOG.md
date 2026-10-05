@@ -2,6 +2,15 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-05 — root-cause category and draft customer reply in the Stage 2 note
+
+- The agent now classifies each reported problem as `plugin_bug`, `conflict`, `host`, or `user_error` (or `undetermined` when evidence is insufficient, `not_applicable` for feature-request-only) and cites evidence. **Only `plugin_bug` may be filed or commented on in GitHub**; the other categories get only the Crisp note. Feature-request handling is unchanged.
+- The note gains `- Category:` / `- Evidence:` bullets and a `=== DRAFT REPLY ... === END DRAFT ===` block: a plain-language customer reply for staff to edit and send. The bot still never messages the customer.
+- `events-parse.mjs`: new `parseCategory` (enum only; evidence and draft text never reach the event log); the investigation event gains a `category` field. Older notes without a Category line parse as `unknown`, never throw. `parseNote` ignores everything from the draft marker on.
+- `crisp-post-note.mjs` only prints warnings for a missing category/draft, a non-`plugin_bug` note that reports a filed bug, or a draft containing URLs/issue numbers/file paths. It never blocks the post, so the "agent must leave a note" failure check is unchanged. Issue-URL dedupe ignores the draft block.
+- `undetermined` is a fifth value beyond the four requested; it is how "evidence is insufficient" is expressed, and it files nothing (consistent with the existing "cannot substantiate" rule).
+- Not verified against a real run yet.
+
 ## 2026-10-05 — triage schedule 3h -> 4h
 
 Measured the last 30 scheduled runs: gaps were never a steady 3h (median ~6.5h, up to 12h) because GitHub silently drops/delays scheduled runs. Changed cron to `17 */4 * * *` per request. This lowers the nominal frequency; it does not fix the dropped runs.

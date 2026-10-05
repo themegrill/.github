@@ -42,7 +42,27 @@ const creds = {
   websiteId: process.env.CRISP_WEBSITE_ID,
 };
 
-const issueUrls = [...note.matchAll(/https:\/\/github\.com\/[^\s)]+\/issues\/\d+/g)].map((m) => m[0]);
+// The draft customer reply (marker format mirrors events-parse.mjs; this file
+// is copied alone to $HOME by the workflow, so it can't import that module) is
+// excluded from URL dedupe -- it must never contain issue links anyway.
+const draftStart = /^[ \t]*={2,}[ \t]*DRAFT REPLY\b.*$/im.exec(note);
+const report = draftStart ? note.slice(0, draftStart.index) : note;
+const draft = draftStart ? note.slice(draftStart.index) : "";
+const issueUrls = [...report.matchAll(/https:\/\/github\.com\/[^\s)]+\/issues\/\d+/g)].map((m) => m[0]);
+
+// Soft checks only, printed into the agent's tool output so it can see them.
+// Never block the post: the note is the mandatory last step and a lost note is
+// worse than a malformed one (the workflow fails the job if this isn't called).
+const category = report.match(/^\s*[-*]\s*Category\s*:\s*([`*\w ]+)/im)?.[1]?.toLowerCase().replace(/[`*]/g, "").trim().split(/\s+/)[0];
+if (!category) console.warn("Warning: note has no '- Category:' line (expected plugin_bug | conflict | host | user_error | undetermined | not_applicable).");
+if (!draftStart) console.warn("Warning: note has no '=== DRAFT REPLY ... ===' block for staff.");
+else if (!/^[ \t]*={2,}[ \t]*END DRAFT\b/im.test(draft)) console.warn("Warning: draft reply block is missing its '=== END DRAFT ===' line.");
+if (category && category !== "plugin_bug" && /^\s*[-*]\s*Bug\s*:\s*(filed|already tracked)/im.test(report)) {
+  console.warn(`Warning: category is ${category} but the note reports a bug issue as filed/tracked; only plugin_bug may be filed or commented on.`);
+}
+if (/https?:\/\/|issues?\s*#\d+|#\d{2,}|[\w./-]+\.(php|js|jsx|ts|tsx|css):\d+/i.test(draft)) {
+  console.warn("Warning: draft reply contains a URL, issue number, or file path; customer drafts must not.");
+}
 
 async function main() {
   if (issueUrls.length > 0) {

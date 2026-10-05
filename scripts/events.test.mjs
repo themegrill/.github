@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { emitEvent, eventPath, buildEvent } from "./events.mjs";
-import { parseNote, parseOpencodeOutput } from "./events-parse.mjs";
+import { parseNote, parseCategory, parseOpencodeOutput } from "./events-parse.mjs";
 import { costUSD } from "./pricing.mjs";
 
 const ENV = {
@@ -96,6 +96,34 @@ test("parseNote: markdown link and trailing punctuation", () => {
 test("parseNote: no bullets means no_defect", () => {
   assert.deepEqual(parseNote("Investigation report: client-side config problem."), { items: [], outcome: "no_defect" });
   assert.deepEqual(parseNote(""), { items: [], outcome: "no_defect" });
+});
+
+const DRAFT = [
+  "=== DRAFT REPLY (for staff to edit and send -- the bot never messages the customer) ===",
+  "- Bug: Filed: https://github.com/org/p/issues/1",
+  "- Category: plugin_bug",
+  "=== END DRAFT ===",
+].join("\n");
+
+test("parseCategory: new-format notes", () => {
+  const bug = ["Investigation report: x", "", "- Category: plugin_bug", "- Evidence: a.php:3", "- Bug: Filed: https://github.com/org/p/issues/5", "", DRAFT].join("\n");
+  assert.equal(parseCategory(bug), "plugin_bug");
+  assert.deepEqual(parseNote(bug).items.map((i) => i.ref), ["org/p#5"]);
+  const conflict = ["Investigation report: x", "- Category: `conflict`", "", DRAFT].join("\n");
+  assert.equal(parseCategory(conflict), "conflict");
+  assert.equal(parseNote(conflict).outcome, "no_defect"); // bullets inside the draft are ignored
+  assert.equal(parseCategory("- Category: undetermined (need version)"), "undetermined");
+  assert.equal(parseCategory("- Category: not_applicable"), "not_applicable");
+});
+
+test("parseCategory: old/garbled notes are unknown, never throw", () => {
+  assert.equal(parseCategory("Investigation report: old\n- Bug: Filed: https://github.com/org/p/issues/5"), "unknown");
+  assert.equal(parseCategory("- Category: weird"), "unknown");
+  assert.equal(parseCategory(""), "unknown");
+  assert.equal(parseCategory(null), "unknown");
+  assert.equal(parseCategory(undefined), "unknown");
+  // A Category line that only appears inside the draft does not count.
+  assert.equal(parseCategory(`Investigation report: x\n${DRAFT}`), "unknown");
 });
 
 test("parseOpencodeOutput sums cost and tokens, tolerates junk and missing fields", () => {

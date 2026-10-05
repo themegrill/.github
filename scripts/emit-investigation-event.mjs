@@ -10,7 +10,7 @@
 // Env:   SESSION_ID REPO KIND ACCOUNT STARTED_AT(epoch s) AGENT_STEP_OUTCOME MODEL
 import { readFile } from "node:fs/promises";
 import { emitEvent } from "./events.mjs";
-import { parseNote, parseOpencodeOutput } from "./events-parse.mjs";
+import { parseNote, parseCategory, parseOpencodeOutput } from "./events-parse.mjs";
 
 const [outputPath, notePath] = process.argv.slice(2);
 const { SESSION_ID, REPO, KIND, ACCOUNT, STARTED_AT, AGENT_STEP_OUTCOME, MODEL } = process.env;
@@ -50,6 +50,8 @@ async function main() {
     reason,
     outcome: status === "failed" ? "failed" : parsed.outcome,
     items: parsed ? parsed.items : [],
+    // Enum only (never the evidence/draft text). "unknown" for older notes.
+    category: note === null || status === "failed" ? "unknown" : parseCategory(note),
     started_at: startedMs ? new Date(startedMs).toISOString() : null,
     duration_s: startedMs ? Math.round((nowMs - startedMs) / 1000) : null,
     agent: { model: MODEL ?? null, steps: agent.steps, cost_usd: agent.cost_usd, tokens: agent.tokens },
