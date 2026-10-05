@@ -12,6 +12,11 @@ on:
         description: "JSON array of {session_id, repo, kind, account} entries"
         required: true
         type: string
+      model:
+        description: "Optional OpenAI model override for this run only (e.g. for testing); empty = vars.INVESTIGATE_MODEL, then gpt-5-mini"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   investigate:
@@ -111,6 +116,8 @@ jobs:
           # The agent only gets a file path to drop a copy of its note at --
           # never the events token (see "Record investigation event" below).
           NOTE_RECORD_PATH: /tmp/last-note.txt
+          # Via env, not interpolated into the script: inputs.model is free text.
+          INVESTIGATE_MODEL_NAME: ${{ inputs.model || vars.INVESTIGATE_MODEL || 'gpt-5-mini' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ startsWith(matrix.repo, 'themegrill/') && secrets.BOT_TOKEN_THEMEGRILL || secrets.BOT_TOKEN }}
           CRISP_IDENTIFIER: ${{ secrets[format('CRISP_{0}_IDENTIFIER', matrix.account)] }}
@@ -119,7 +126,7 @@ jobs:
         run: |
           set +e
           opencode run "$(cat "${{ steps.prompt.outputs.path }}")" \
-            --model "openai/${{ vars.INVESTIGATE_MODEL || 'gpt-5-mini' }}" \
+            --model "openai/$INVESTIGATE_MODEL_NAME" \
             --auto \
             --format json \
             > /tmp/opencode-output.json
@@ -147,5 +154,5 @@ jobs:
           ACCOUNT: ${{ matrix.account }}
           STARTED_AT: ${{ steps.started.outputs.at }}
           AGENT_STEP_OUTCOME: ${{ steps.act.outcome }}
-          MODEL: openai/${{ vars.INVESTIGATE_MODEL || 'gpt-5-mini' }}
+          MODEL: openai/${{ inputs.model || vars.INVESTIGATE_MODEL || 'gpt-5-mini' }}
         run: node .bot-tools/scripts/emit-investigation-event.mjs /tmp/opencode-output.json /tmp/last-note.txt
