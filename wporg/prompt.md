@@ -61,6 +61,13 @@ Replies marked "Plugin/Theme Support (our team)" are from our own support staff 
    gh issue create --repo {{ISSUE_REPO}} --title "..." --label bug-report,bug-report-triage,wporg-forum,<qa-label> --body-file <path>
    ```
    Write the body file as real markdown with these `##` headings (Summary, Reporter context, Reproduction notes, Diagnosis, Possible fix):
+   **If your confidence is below 70, the body must begin with this exact warning, before the Summary heading** (copy it verbatim, with the real number):
+   ```markdown
+   > [!WARNING]
+   > **Low-confidence AI diagnosis (NN/100) -- verify manually before acting.** This was filed automatically from a public forum topic and was not reproduced. The diagnosis may be a false positive or may miss the real cause (for example, other code could already handle what looks wrong, or the problem could be a conflict or hosting issue). Please check it properly by hand before spending time on a fix.
+   ```
+   Omit the warning only when confidence is 70 or above.
+
    ```markdown
    ## Summary
 

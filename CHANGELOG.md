@@ -4,7 +4,7 @@ Short, dated summary of notable fixes and changes. For the full "why," see `PHAS
 
 ## 2026-10-05 — wp.org triage: filing threshold, closed-issue search, `wporg-forum` label
 
-Interim policy after two false-positive issues on the same topic (#1243, #1244, both closed): the agent files only when its own confidence is above 50; below 70 or unreproduced it gets `manual-qa-required` (unchanged). Duplicate search now uses `--state all` so a match that a human already closed is not re-filed or commented on. Every filed issue also gets a `wporg-forum` label for bulk review, and the issue body gains a "Possible fix" section (suggestion only; "No fix proposed" when the diagnosis does not support one). Caveat: self-reported confidence is not calibrated (94 then 60 for the same wrong claim), so this does not stop a confidently wrong diagnosis; review the first issues by hand.
+Interim policy after two false-positive issues on the same topic (#1243, #1244, both closed): the agent files only when its own confidence is above 50; below 70 or unreproduced it gets `manual-qa-required` (unchanged). Duplicate search now uses `--state all` so a match that a human already closed is not re-filed or commented on. Every filed issue also gets a `wporg-forum` label for bulk review, and the issue body gains a "Possible fix" section (suggestion only; "No fix proposed" when the diagnosis does not support one). Issues with confidence below 70 begin with a fixed "Low-confidence AI diagnosis -- verify manually" warning. Caveat: self-reported confidence is not calibrated (94 then 60 for the same wrong claim), so this does not stop a confidently wrong diagnosis; review the first issues by hand.
 
 ## 2026-10-05 — wp.org triage skips resolved topics
 
