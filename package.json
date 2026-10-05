@@ -6,6 +6,6 @@
     "libsodium-wrappers": "^0.7.15"
   },
   "scripts": {
-    "test": "node --test scripts/"
+    "test": "node --test scripts/ wporg/scripts/"
   }
 }
