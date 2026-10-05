@@ -2,6 +2,15 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-05 — stopped conversations being re-investigated by their own notes
+
+A conversation (e.g. `session_bd0acc7b`) was investigated again every few hours with no new customer activity.
+
+- **Root cause**: the stale and reopen paths stamped `checkedThroughAt` / `resolved-seen` from the newest message of *any* type. Stage 2 posts its private note after that stamp, so the next run saw the bot's own note as "new activity", re-classified the unchanged transcript, and re-investigated. The note dedupe only keys on GitHub issue URLs, so "no bug / how-to" notes were posted again each time.
+- **Fix**: those two paths now take the newest timestamp from `type: "text"` messages only (`newestTextTimestamp` in `crisp-classify.mjs`). Manual `!tg-autopilot investigate` branches and `crisp-investigate-now` are unchanged.
+- Existing stored markers are equal or newer than the text-only value, so nothing re-fires on deploy.
+- Not changed: `crisp-post-note.mjs` dedupe for URL-less notes, the GitHub-comment check (prompt-only), and `crisp-dedupe-active.mjs`.
+
 ## 2026-10-02 — event log for a triage dashboard (not live until the data repo exists)
 
 Groundwork for a run dashboard: Stage 1 and Stage 2 now write small JSON events to a **separate private repo** (`EVENTS_REPO`), never to this public one.
