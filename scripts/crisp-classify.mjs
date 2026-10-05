@@ -48,6 +48,17 @@ function transcriptFrom(messages) {
     .join("\n");
 }
 
+// Newest timestamp among real conversation messages only (customer/agent
+// text). Private notes -- including this pipeline's own "Investigation
+// report" notes -- and event messages are excluded: Stage 2 posts its note
+// AFTER Stage 1 stamps the marker, so counting notes made every investigation
+// look like "new activity" on the next run and re-investigated the same
+// conversation every few hours (confirmed on session_bd0acc7b). Only the
+// automatic stale/reopen paths use this; manual-note branches are unchanged.
+function newestTextTimestamp(messages, floor = 0) {
+  return messages.reduce((max, m) => (m.type === "text" ? Math.max(max, m.timestamp ?? 0) : max), floor);
+}
+
 async function main() {
   const runStartedAt = new Date().toISOString();
   const cursor = JSON.parse(await readFile("state/cursor.json", "utf8"));
@@ -229,7 +240,7 @@ async function main() {
           console.log(`[${accountKey}] ${conversation.session_id}: reopened after resolve, classifier says not actionable (kind=${result.kind ?? "n/a"}${result.repo ? "" : ", unmapped"}) -- not escalated`);
         }
         // Advance the marker so an unresolved reopen doesn't get re-classified next run.
-        const newestMs = messages.reduce((max, m) => Math.max(max, m.timestamp ?? 0), previousResolveAt);
+        const newestMs = newestTextTimestamp(messages, previousResolveAt);
         resolvedSeen[conversation.session_id] = newestMs;
         // Also stamp checkedThroughAt: if this later goes quiet again and
         // falls to the stale-fallback branch below with nothing further to
@@ -242,7 +253,7 @@ async function main() {
         // up, but can never be blocked forever the way a permanent
         // already-investigated flag was (confirmed for real: session_2fc63232
         // stayed stuck across repeated resolve/reopen cycles).
-        const newestMessageAt = messages.reduce((max, m) => Math.max(max, m.timestamp ?? 0), 0);
+        const newestMessageAt = newestTextTimestamp(messages);
         if (record.checkedThroughAt === undefined || newestMessageAt > record.checkedThroughAt) {
           const result = await classifyAndRoute(accountConfig, conversation, transcript);
           recordScan("stale", accountKey, conversation.session_id, result);
