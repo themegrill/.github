@@ -2,6 +2,10 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-05 — wp.org triage: first filed issue was a false positive; prompt tightened
+
+The first issue the pipeline filed (everest-forms phone flags, #1243 in the pro repo, now closed) blamed a non-existent stylesheet path. The agent stopped at the first mismatch: `register_styles()` registers the same handle with the correct path first and `enqueue_style()` skips re-registering, so the bad path is dead code. It also reported 94/100 confidence without reproducing anything, against a staff reply that they could not reproduce. The prompt now requires tracing every other registration/override of the same thing, and caps confidence at 60 unless the symptom was actually reproduced. Fallback to the pro repo and the report-in-log worked as intended on that run.
+
 ## 2026-10-05 — wp.org triage: pro-repo fallback, stricter completion check
 
 Found on the first real run (`phone-field-country-flags-are-not-loading`, everest-forms): the agent concluded `product_bug` but "GitHub filing was blocked by repo permissions", and the job still went green.

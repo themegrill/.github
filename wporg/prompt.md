@@ -32,6 +32,10 @@ Replies marked "Plugin/Theme Support (our team)" are from our own support staff 
    - `host` -- server/hosting configuration (mail blocked, memory limit, PHP version, etc.).
    - `user_error` -- misconfiguration, a missing setting, or a misunderstanding of how the product works.
 
+   **Before concluding that something is missing, misnamed or wrong, trace the whole execution path.** Finding one suspicious line is not a cause. Search the repo for every other place the same handle, hook, option, function or file is registered, overridden, filtered or guarded, and follow the code to the point where the user-visible symptom would actually occur. If other code makes the suspicious line harmless (a later or earlier registration, a fallback, a dead code path, a guard), it is not the cause. State in your Evidence line which path you traced.
+
+   **Confidence cap.** You cannot run the product in a browser here. Unless you actually reproduced the symptom, your confidence must not exceed 60/100, and a report with confidence below 70 gets the `manual-qa-required` label. Our own support staff saying they could not reproduce the problem lowers it further.
+
    Cite evidence: a `file:line` from this repo, or a short direct quote from the topic. Evidence must show the cause, not just that related code exists; hedged wording ("can break", "might cause") means you have not found the cause, so use `undetermined`. If evidence is insufficient use `undetermined` and say what is missing. If the topic is only a feature request, the category is `not_applicable`.
 
    **Only `product_bug` may result in a GitHub-side outcome for the bug item** (steps 2-3). For `conflict`, `host`, `user_error`, `undetermined`, do not file or comment on any issue for the bug item. Feature requests are a separate kind and are not gated by the category.
