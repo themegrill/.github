@@ -20,6 +20,7 @@ flowchart LR
 - Only **new** topics are looked at. The first run for a product only records what already exists (`seeded`), so onboarding never floods Stage 2 with a backlog. Topics older than 14 days that were never seen are marked seen and skipped. At most 10 escalations per run; the rest are marked seen and can be run manually.
 - Same rules as Crisp Stage 2: bug and feature judged separately, existing issue -> comment (a feature needs an exact-capability match), otherwise new issue with `manual-qa-required` / `qa-verified`. Only a `product_bug` root cause may be filed; `conflict` / `host` / `user_error` / `undetermined` file nothing.
 - **Nothing is ever written to wordpress.org** (no official API, and bot replies there risk trouble with the plugin team). The agent's report goes to the job log / step summary only. There is no draft reply.
+- **Issue repo fallback**: the bot token (a fine-grained PAT) only reaches the repos it was granted. Before the agent runs, the job probes write access to the free repo (by creating the QA labels). If that fails, issues are filed in the product's `-pro` repo instead (`fallback_repos` in `config/products.json`, derived from `config/inbox-to-repo.json`), with that org's token, and the run logs a warning. Products with no pro repo fail loudly. Pro repos are private, so a fallback issue is only visible to the team. Fixing the PAT's repository list makes the fallback unnecessary.
 - Issues link back with `Source: [WordPress.org forum topic](url)` and must not copy usernames, emails, site URLs or license keys.
 
 ## Trust
@@ -41,7 +42,8 @@ Topics are written by the public. The agent prompt fences the topic as untrusted
 | `scripts/wporg-classify.mjs` | Stage 1 |
 | `scripts/wporg-classifier.mjs` | Cheap AI call, forum-specific prompt |
 | `scripts/wporg-fetch-transcript.mjs` | Stage 2 input: full thread as text |
-| `scripts/wporg-done.mjs` | Agent's mandatory last step; the workflow fails the job if the agent never called it |
+| `scripts/wporg-done.mjs` | Agent's mandatory last step; `wporg-check-done.mjs` fails the job unless a real tool call to it is in the agent output, and prints the report to the job log |
+| `scripts/wporg-build-prompt.mjs` | Fills `prompt.md` (own copy so Crisp's `build-prompt.mjs` is untouched; topic text is substituted last, never re-expanded) |
 | `prompt.md` | Stage 2 agent instructions (derived from `prompts/crisp-triage-agent.md`; keep rules in sync by hand) |
 | `../.github/workflows/wporg-triage.yml`, `wporg-investigate-job.yml` | Entry point and reusable Stage 2 |
 
