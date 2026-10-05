@@ -45,6 +45,7 @@ const creds = {
 // The draft customer reply (marker format mirrors events-parse.mjs; this file
 // is copied alone to $HOME by the workflow, so it can't import that module) is
 // excluded from URL dedupe -- it must never contain issue links anyway.
+const DRAFT_MARKER = /^[ \t]*={2,}[ \t]*DRAFT REPLY\b/im;
 const draftStart = /^[ \t]*={2,}[ \t]*DRAFT REPLY\b.*$/im.exec(note);
 const report = draftStart ? note.slice(0, draftStart.index) : note;
 const draft = draftStart ? note.slice(draftStart.index) : "";
@@ -70,6 +71,23 @@ async function main() {
     const existingNotes = messages.filter((m) => m.type === "note").map((m) => m.content ?? "");
     const allAlreadyNoted = issueUrls.every((url) => existingNotes.some((content) => content.includes(url)));
     if (allAlreadyNoted) {
+      // The skip above predates the draft reply. If this conversation has never
+      // received a draft (e.g. its earlier note was posted before drafts
+      // existed), skipping would silently drop the category and draft staff
+      // need. Post ONE reduced note then (no issue links, so no duplicate
+      // noise); once any note on the conversation carries a draft, the
+      // original skip applies again, so re-investigations don't pile up notes.
+      const hasEarlierDraft = existingNotes.some((content) => DRAFT_MARKER.test(content));
+      if (draftStart && !hasEarlierDraft) {
+        const reduced = note
+          .split("\n")
+          .filter((line) => !/^\s*[-*]\s*(Bug|Feature request)\s*:/i.test(line))
+          .join("\n")
+          .replace(/\n+([ \t]*=+[ \t]*DRAFT REPLY)/i, "\n- Issue already tracked in an earlier note on this conversation.\n\n$1");
+        await postNote(creds, sessionId, reduced);
+        console.log(`Note posted (reduced, draft only) to conversation ${sessionId} -- issue(s) already noted earlier`);
+        return;
+      }
       console.log(`Skipping note -- all referenced issue(s) (${issueUrls.join(", ")}) already mentioned in an existing note on conversation ${sessionId}`);
       return;
     }
