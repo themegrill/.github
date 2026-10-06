@@ -59,6 +59,20 @@ function newestTextTimestamp(messages, floor = 0) {
   return messages.reduce((max, m) => (m.type === "text" ? Math.max(max, m.timestamp ?? 0) : max), floor);
 }
 
+// A rate-limit failure (crispFetch already retried and gave up) on ONE session
+// shouldn't kill the whole run -- that skips "Commit advanced state" and
+// loses every other session's progress. Returns null so callers can skip it.
+// Anything other than a 429 (auth, 5xx, bugs) still throws.
+async function fetchMessagesOrSkip(creds, sessionId, label) {
+  try {
+    return await fetchRawMessages(creds, sessionId);
+  } catch (err) {
+    if (!String(err.message).includes(" 429 ")) throw err;
+    console.warn(`[${label}] ${sessionId}: rate limited fetching messages, skipping this session (${err.message.slice(0, 120)})`);
+    return null;
+  }
+}
+
 async function main() {
   const runStartedAt = new Date().toISOString();
   const cursor = JSON.parse(await readFile("state/cursor.json", "utf8"));
@@ -86,6 +100,7 @@ async function main() {
   let manualEscalations = 0;
   let autoEscalations = 0;
   let reopenEscalations = 0;
+  let resolvedFetchSkipped = 0;
 
   // Each Crisp account is handled independently; an uncredentialed one just warns.
   for (const [accountKey, accountConfig] of Object.entries(accounts)) {
@@ -109,7 +124,13 @@ async function main() {
       }
 
       // Raw messages, not just transcript, so we can also count manual notes.
-      const messages = await fetchRawMessages(creds, conversation.session_id);
+      const messages = await fetchMessagesOrSkip(creds, conversation.session_id, accountKey);
+      if (messages === null) {
+        // Don't record it as seen, and hold the cursor back so the next run
+        // refetches it (a manual note on it would otherwise be lost).
+        resolvedFetchSkipped++;
+        continue;
+      }
       const transcript = transcriptFrom(messages);
 
       if (transcript.trim()) {
@@ -181,7 +202,10 @@ async function main() {
 
       if (!conversation._checkManualNote && !eligibleForAutoEscalate && !isReopen) continue;
 
-      const messages = await fetchRawMessages(creds, conversation.session_id);
+      // On skip, nothing is recorded for this session, so the next run
+      // re-evaluates it from scratch.
+      const messages = await fetchMessagesOrSkip(creds, conversation.session_id, accountKey);
+      if (messages === null) continue;
       const manualNoteCount = conversation._checkManualNote ? countManualTriggerNotes(messages) : record.manualNoteCount;
       const hasNewManualNote = manualNoteCount > record.manualNoteCount;
 
@@ -283,7 +307,13 @@ async function main() {
   const duplicatesRemoved = matrix.length - dedupedMatrix.length;
 
   await writeFile("matrix.json", JSON.stringify(dedupedMatrix));
-  await writeFile("state/cursor.json", JSON.stringify({ last_checked: runStartedAt }, null, 2) + "\n");
+  // If any resolved conversation was skipped (rate limit), keep the old cursor
+  // so it's refetched next run instead of falling out of the window.
+  if (resolvedFetchSkipped > 0) {
+    console.warn(`${resolvedFetchSkipped} resolved conversation(s) skipped due to rate limiting; cursor not advanced`);
+  } else {
+    await writeFile("state/cursor.json", JSON.stringify({ last_checked: runStartedAt }, null, 2) + "\n");
+  }
   await writeFile("state/escalated.json", JSON.stringify(escalated, null, 2) + "\n");
   // Bound growth, same as active-notified.json.
   await writeFile("state/investigated.json", JSON.stringify([...investigated].slice(-2000)));
