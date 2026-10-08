@@ -9,6 +9,7 @@
 // account before relying on it.
 import { readFile, writeFile } from "node:fs/promises";
 import {
+  conversationUrl,
   fetchResolvedConversationsSince,
   fetchActiveConversations,
   searchConversationsForManualTrigger,
@@ -26,8 +27,20 @@ const AUTO_ESCALATE_MAX_HOURS = 24 * 30; // past this, only a manual note escala
 // One entry per conversation that reached the classifier this run -- becomes
 // the `scan` event (see events.mjs). Ids, enums and costs only, no text.
 const scanRecords = [];
+// Escalated conversations for the step summary only (links + confidence);
+// kept apart from scanRecords because that becomes the event log.
+const escalatedRows = [];
 function recordScan(path, account, sessionId, result, { manual = false } = {}) {
   const escalated = !!result.repo && (manual || (result.actionable && result.kind !== "none"));
+  if (escalated) {
+    escalatedRows.push({
+      url: conversationUrl(credsForAccount(account), sessionId),
+      repo: result.repo,
+      kind: result.kind ?? "bug",
+      path: manual ? "manual note" : path,
+      confidence: manual ? null : (result.confidence ?? null),
+    });
+  }
   scanRecords.push({
     session_id: sessionId,
     account,
@@ -344,6 +357,12 @@ async function main() {
       `Fetched (resolved, recorded as seen, not investigated): ${totalFetched} · Actionable: ${dedupedMatrix.length} · Unmapped (skipped): ${skippedUnmapped.length} · Already handled while active (skipped): ${alreadyHandled}${duplicatesRemoved ? ` · Duplicate session_id across loops (deduped): ${duplicatesRemoved}` : ""}`,
       `Escalated from active: ${manualEscalations} manual, ${reopenEscalations} reopen-after-resolve, ${autoEscalations} stale-auto (${AUTO_ESCALATE_HOURS}h–${AUTO_ESCALATE_MAX_HOURS}h)`,
     ];
+    if (escalatedRows.length) {
+      lines.push(``, `| Crisp conversation | Repo | Kind | Via | Confidence |`, `| --- | --- | --- | --- | --- |`);
+      for (const r of escalatedRows) {
+        lines.push(`| [open in Crisp](${r.url}) | ${r.repo} | ${r.kind} | ${r.path} | ${r.confidence == null ? (r.path === "manual note" ? "n/a (human call)" : "n/a") : `${r.confidence}/100`} |`);
+      }
+    }
     if (skippedUnmapped.length) {
       lines.push(``, `Unmapped inbox keys / unidentified products seen (add these to config/inbox-to-repo.json if real):`);
       for (const s of skippedUnmapped) lines.push(`- [${s.account}] \`${s.inboxKey}\` (session ${s.session_id})`);

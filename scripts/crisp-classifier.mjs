@@ -16,13 +16,13 @@ async function classify(transcript) {
       "defect (bug) or a genuine feature request -- as opposed to a billing " +
       "question, how-to question, client-side misconfiguration, or anything " +
       "that isn't a product code issue. Respond with ONLY a JSON object: " +
-      '{"actionable": boolean, "kind": "bug" | "feature" | "none"}. ' +
+      '{"actionable": boolean, "kind": "bug" | "feature" | "none", "confidence": <integer 0-100, your honest confidence in this verdict>}. ' +
       "Be conservative: when genuinely unsure whether it's a real product " +
       'defect, prefer {"actionable": false, "kind": "none"} -- the next ' +
       "stage is expensive, so false positives cost real money and false " +
       "negatives just wait for a clearer report.",
     transcript,
-    { actionable: false, kind: "none" }
+    { actionable: false, kind: "none", confidence: null }
   );
 }
 
@@ -41,14 +41,14 @@ async function classifyWithProduct(transcript, productNames) {
       '"unknown"; (3) whether the transcript indicates the PRO/premium edition ' +
       "(mentions of a license, purchase, or Pro-only features) or the free edition " +
       "(the default when unclear). Respond with ONLY a JSON object: " +
-      '{"actionable": boolean, "kind": "bug" | "feature" | "none", ' +
+      '{"actionable": boolean, "kind": "bug" | "feature" | "none", "confidence": <integer 0-100, your honest confidence in actionable/kind>, ' +
       '"product": "<exact-name-from-list>" | "unknown", "edition": "free" | "pro"}. ' +
       "Be conservative on actionable/kind: when genuinely unsure whether it's a " +
       'real product defect, prefer {"actionable": false, "kind": "none"} -- the ' +
       "next stage is expensive, so false positives cost real money and false " +
       "negatives just wait for a clearer report.",
     transcript,
-    { actionable: false, kind: "none", product: "unknown", edition: "free" }
+    { actionable: false, kind: "none", product: "unknown", edition: "free", confidence: null }
   );
 }
 
@@ -63,10 +63,10 @@ async function classifyWithProduct(transcript, productNames) {
 // that call's own actionable verdict.
 export async function classifyAndRoute(accountConfig, conversation, transcript, { skipClassifier = false } = {}) {
   if (accountConfig.repo) {
-    const { data: { actionable, kind }, usage } = skipClassifier
+    const { data: { actionable, kind, confidence }, usage } = skipClassifier
       ? { data: { actionable: true, kind: "bug" }, usage: null }
       : await classify(transcript);
-    return { repo: accountConfig.repo, actionable, kind, usage };
+    return { repo: accountConfig.repo, actionable, kind, confidence: confidence ?? null, usage };
   }
 
   if (accountConfig.products) {
@@ -77,14 +77,14 @@ export async function classifyAndRoute(accountConfig, conversation, transcript, 
     const repo = result.edition === "pro" && mapping.pro ? mapping.pro : mapping.free;
     return skipClassifier
       ? { repo, actionable: true, kind: result.kind === "feature" ? "feature" : "bug", usage }
-      : { repo, actionable: result.actionable, kind: result.kind, usage };
+      : { repo, actionable: result.actionable, kind: result.kind, confidence: result.confidence ?? null, usage };
   }
 
   const inboxKey = getInboxKey(conversation);
   const mapping = inboxKey && accountConfig.inboxes?.[inboxKey];
   if (!mapping) return { repo: null, unmappedKey: inboxKey };
-  const { data: { actionable, kind }, usage } = skipClassifier
+  const { data: { actionable, kind, confidence }, usage } = skipClassifier
     ? { data: { actionable: true, kind: "bug" }, usage: null }
     : await classify(transcript);
-  return { repo: mapping.repo, actionable, kind, usage };
+  return { repo: mapping.repo, actionable, kind, confidence: confidence ?? null, usage };
 }
