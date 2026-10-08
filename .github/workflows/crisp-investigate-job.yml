@@ -123,6 +123,7 @@ jobs:
           CRISP_IDENTIFIER: ${{ secrets[format('CRISP_{0}_IDENTIFIER', matrix.account)] }}
           CRISP_KEY: ${{ secrets[format('CRISP_{0}_KEY', matrix.account)] }}
           CRISP_WEBSITE_ID: ${{ vars[format('CRISP_{0}_WEBSITE_ID', matrix.account)] }}
+          CONVERSATION_URL: https://app.crisp.chat/website/${{ vars[format('CRISP_{0}_WEBSITE_ID', matrix.account)] }}/inbox/${{ matrix.session_id }}/
         run: |
           set +e
           opencode run "$(cat "${{ steps.prompt.outputs.path }}")" \

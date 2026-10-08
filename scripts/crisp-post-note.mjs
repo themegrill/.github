@@ -59,8 +59,9 @@ const issueUrls = [...report.matchAll(/https:\/\/github\.com\/[^\s)]+\/issues\/\
 const rawCategory = report.match(/^\s*[-*]\s*Category\s*:\s*([`*\w ]+)/im)?.[1]?.toLowerCase().replace(/[`*]/g, "").trim().split(/\s+/)[0];
 const category = rawCategory === "plugin_bug" ? "product_bug" : rawCategory; // legacy name
 if (!category) console.warn("Warning: note has no '- Category:' line (expected product_bug | conflict | host | user_error | undetermined | not_applicable).");
-if (!draftStart) console.warn("Warning: note has no '=== DRAFT REPLY ... ===' block for staff.");
-else if (!/^[ \t]*={2,}[ \t]*END DRAFT\b/im.test(draft)) console.warn("Warning: draft reply block is missing its '=== END DRAFT ===' line.");
+// Draft replies are paused (see prompts/crisp-triage-agent.md): no missing-draft warning.
+if (!/^\s*[-*]\s*Confidence\s*:\s*\d/im.test(report)) console.warn("Warning: note has no '- Confidence: NN/100' line.");
+if (draftStart && !/^[ \t]*={2,}[ \t]*END DRAFT\b/im.test(draft)) console.warn("Warning: draft reply block is missing its '=== END DRAFT ===' line.");
 if (category && category !== "product_bug" && /^\s*[-*]\s*Bug\s*:\s*(filed|already tracked)/im.test(report)) {
   console.warn(`Warning: category is ${category} but the note reports a bug issue as filed/tracked; only product_bug may be filed or commented on.`);
 }
@@ -68,10 +69,46 @@ if (/https?:\/\/|issues?\s*#\d+|#\d{2,}|[\w./-]+\.(php|js|jsx|ts|tsx|css):\d+/i.
   console.warn("Warning: draft reply contains a URL, issue number, or file path; customer drafts must not.");
 }
 
+// Similarity check for notes WITHOUT issue URLs (and as a second net for ones
+// with): a re-investigation of the same conversation often reaches the same
+// conclusion in slightly different words. Compare only the report part
+// (summary, category, evidence, bug/feature lines), ignoring confidence, which
+// legitimately varies run to run. Same category + >= 0.8 token overlap = same note.
+const SIMILARITY_THRESHOLD = 0.8;
+function reportTokens(text) {
+  const body = text.split(/^[ \t]*={2,}[ \t]*DRAFT REPLY\b/im)[0].replace(/^\s*[-*]\s*Confidence\s*:.*$/gim, "");
+  return new Set(body.toLowerCase().replace(/[^a-z0-9_./:#-]+/g, " ").split(" ").filter(Boolean));
+}
+function categoryOf(text) {
+  const c = text.match(/^\s*[-*]\s*Category\s*:\s*([`*\w ]+)/im)?.[1]?.toLowerCase().replace(/[`*]/g, "").trim().split(/\s+/)[0];
+  return c === "plugin_bug" ? "product_bug" : c;
+}
+function isSimilarNote(existing) {
+  if (!/investigation report:/i.test(existing)) return false; // only compare against our own notes
+  if (categoryOf(existing) !== category) return false;
+  const a = reportTokens(existing);
+  const b = reportTokens(report);
+  if (!a.size || !b.size) return false;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter++;
+  return inter / (a.size + b.size - inter) >= SIMILARITY_THRESHOLD;
+}
+
 async function main() {
-  if (issueUrls.length > 0) {
+  let existingNotes = [];
+  try {
     const messages = await fetchRawMessages(creds, sessionId);
-    const existingNotes = messages.filter((m) => m.type === "note").map((m) => m.content ?? "");
+    existingNotes = messages.filter((m) => m.type === "note").map((m) => m.content ?? "");
+  } catch (err) {
+    // A lost note is worse than a duplicate: post anyway if the lookup fails.
+    console.warn(`Could not fetch existing notes for dedupe (posting anyway): ${err.message}`);
+  }
+  const similar = existingNotes.find(isSimilarNote);
+  if (similar) {
+    console.log(`Skipping note -- a similar investigation note (same category, near-identical content) already exists on conversation ${sessionId}`);
+    return;
+  }
+  if (issueUrls.length > 0) {
     const allAlreadyNoted = issueUrls.every((url) => existingNotes.some((content) => content.includes(url)));
     if (allAlreadyNoted) {
       // The skip above predates the draft reply. If this conversation has never

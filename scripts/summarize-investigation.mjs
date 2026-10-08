@@ -34,6 +34,10 @@ async function main() {
   }
 
   const lines = ["### Investigation"];
+  // Link + confidence up top so the summary is actionable without opening the note.
+  const url = process.env.CONVERSATION_URL;
+  const conf = lastText?.match(/^\s*[-*]?\s*Confidence\s*:\s*(\d{1,3})/im)?.[1];
+  if (url) lines.push(`**Crisp conversation:** [open in Crisp](${url})` + (conf ? ` · **Confidence:** ${conf}/100` : ""), "");
   lines.push(
     lastText ? lastText : "_The agent produced no final report -- check the raw log for what happened._"
   );
