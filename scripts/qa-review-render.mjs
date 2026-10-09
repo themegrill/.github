@@ -95,7 +95,10 @@ export function renderComment({ review, facts }) {
   if (testsTouched.length) L.push(`This PR also changes ${testsTouched.length} test file(s), so some coverage may be new.`);
   L.push("");
 
-  if (checks.length) {
+  if (checks === null) {
+    L.push("**Other checks on this commit:** not available (the bot token cannot read check runs).");
+    L.push("");
+  } else if (checks.length) {
     L.push("**Other checks on this commit:** " + checks.map((c) => `${STATE_ICON[c.state] ?? "⏳"} ${sanitize(c.name, 60)}`).join(" · "));
     L.push("");
   }

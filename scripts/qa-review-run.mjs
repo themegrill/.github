@@ -1,7 +1,7 @@
 // QA review runner: gather (read-only) -> ONE model call -> validate -> render.
 // Never checks out or executes PR code. Writes the comment body to a file; the
 // workflow decides whether to post it. Run only AFTER qa-review-gate.mjs allowed it.
-import { readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ghTokenForRepo } from "./github-client.mjs";
 import { chatJSONWithUsage } from "./openai-client.mjs";
@@ -23,7 +23,7 @@ export function buildUserMessage({ pr, areas, checks, qa, diff }) {
     `<pr_title>${escapeTags(pr.title)}</pr_title>`,
     `<pr_body>${escapeTags(clip(pr.body ?? "", 3000))}</pr_body>`,
     `<areas_touched>${escapeTags(JSON.stringify(Object.fromEntries(Object.entries(areas).map(([a, f]) => [a, f.length]))))}</areas_touched>`,
-    `<other_checks>${escapeTags(checks.map((c) => `${c.name}: ${c.state}`).join("\n"))}</other_checks>`,
+    `<other_checks>${escapeTags((checks ?? []).map((c) => `${c.name}: ${c.state}`).join("\n") || "(not available)")}</other_checks>`,
     `<knowledge>${escapeTags(clip(qa.knowledge, 12000))}</knowledge>`,
     `<existing_test_cases>\n${escapeTags(cases)}\n</existing_test_cases>`,
     `<diff>\n${escapeTags(diff.text)}\n</diff>`,
@@ -39,7 +39,13 @@ export async function runReview({ repo, prNumber, expectedSha, reader, chat, sys
   }
   const [files, checks, qa] = await Promise.all([
     reader.listFiles(repo, prNumber),
-    reader.listCheckRuns(repo, pr.head.sha),
+    // Supporting context only: a fine-grained PAT without "Checks: read" gets a
+    // 403 here (seen on the first real run). Don't fail the review over it;
+    // null makes the comment say the section is unavailable instead of omitting it.
+    reader.listCheckRuns(repo, pr.head.sha).catch((err) => {
+      console.warn(`::warning::Could not read check runs, continuing without them: ${err.message}`);
+      return null;
+    }),
     loadQaData(reader, repo, pr.base.ref),
   ]);
 
@@ -64,7 +70,7 @@ export async function runReview({ repo, prNumber, expectedSha, reader, chat, sys
       areas,
       unmapped,
       // Don't list our own pending run among "other checks".
-      checks: checks.filter((c) => !/^qa review/i.test(c.name)),
+      checks: checks && checks.filter((c) => !/^qa review/i.test(c.name)),
       shown: diff.shown,
       omitted: diff.omitted,
       noPatch: diff.noPatch,
@@ -74,7 +80,10 @@ export async function runReview({ repo, prNumber, expectedSha, reader, chat, sys
       model: usage?.model,
     },
   });
-  return { body, review, usage };
+  // Fail safe: only an explicit `false` counts as public. The review is analysis
+  // of the repo's code, and this workflow's own run summary/logs are public.
+  const isPrivate = pr.base?.repo?.private !== false;
+  return { body, review, usage, isPrivate };
 }
 
 async function main() {
@@ -92,6 +101,7 @@ async function main() {
     systemPrompt: readFileSync(new URL("../prompts/qa-review.md", import.meta.url), "utf8"),
   });
   writeFileSync(QA_BODY_OUT, out.body + "\n");
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `repo_private=${out.isPrivate}\n`);
   console.log(`Wrote ${QA_BODY_OUT}: ${out.review.risks.length} risks, ${out.review.manual.length} manual tests, ${out.review.scenarios.length} scenarios; dropped ${JSON.stringify(out.review.dropped)}; usage ${JSON.stringify(out.usage)}`);
 }
 
