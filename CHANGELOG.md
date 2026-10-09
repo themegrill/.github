@@ -2,6 +2,15 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-09 — PR build zip: optional "Try this PR in a live test site" link
+
+For QA and for support reproducing issues: the PR build comment can now include a link that opens a fresh WordPress (Playground, in the browser) with that build installed, logged in as admin. No install, nothing to clean up.
+
+- **Enrolment is central, not per repo:** add a repo to `config/preview-link-repos.json` here; no caller file changes in the ~90 repos. Not enrolled means no link and no change in behavior. Off by default because a link that looks right but fails (themes need `type: theme`, add-ons need their base plugin, `*-pro` opens unlicensed) is worse than none. Skill: `onboard-pr-build-zip-repo`.
+- **One-time AWS change, done:** `themegrill-pr-artifacts` now allows `GET, HEAD` from `https://playground.wordpress.net` (CORS). Without it the browser can't fetch the zip.
+- **Tested:** unit tests plus a real build of `themegrill/user-registration` from a throwaway branch (link generated from that run's zip, comment text rendered). A person opened the link and confirmed the plugin installs and activates. Not tested: a non-enrolled repo's live build (the script is unit-tested to do nothing and exit 0), the `requires` option in a browser, themes.
+- Only the primary ZIP is previewed. Playground has no real MySQL, mail or cron, so those bugs still need a real site.
+
 ## 2026-10-09 — QA review bot: built, run by hand only, ON HOLD
 
 A bot that reviews a PR on request: it reads the diff and the repo's `.themegrill-qa/` notes and writes one advisory comment (summary, risks tied to changed lines, existing test cases to run by hand). Files: `qa-review.yml`, `scripts/qa-review-*.mjs`, `prompts/qa-review.md`, `config/qa-review-repos.json`.

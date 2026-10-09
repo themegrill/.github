@@ -25,6 +25,17 @@ Adds a `.github/workflows/pr-build-zip.yml` caller to a repo so every ready-for-
 - **A repo has its own fully self-contained build script** (e.g. `bin/build-zip.sh` that does its own install + composer + build + zip): don't fight it by also configuring `composer-install`/`zip-glob` — set `composer-install: false` and `build-command: npm run build` (or whatever invokes that script) and let it own the whole pipeline. If that script itself calls `cross-env` or another dev-dependency binary, it must already be installed *before* the script runs — set `install-command` to a real install (not a no-op), since the script's own internal install runs too late for that.
 - **`install-command` containing embedded quotes**: `${{ inputs.install-command }}` is textually substituted with no escaping. A value like `echo "skip"` can break the surrounding `if [ -n "..." ]` shell test. The reusable workflow passes `install-command` via an `env:` var for exactly this reason — if you're editing `pr-build-zip.yml` itself, keep it that way rather than reverting to raw interpolation.
 
+## Live preview link ("Try this PR in a live test site")
+
+Opt-in per repo, and **no caller file needs to change**: enrol the repo in `config/preview-link-repos.json` here (`"org/name": { ... }`). The next build adds a WordPress Playground link (a WordPress that runs in the browser) to the PR comment, with that build installed and activated and you logged in as admin.
+
+- Entry fields, all optional: `type` (`plugin`|`theme`, default plugin), `landingPage` (a site path, default `/wp-admin/plugins.php`), `php` (7.4-8.4, default 8.2), `wp` (`latest` or a version), `requires` (wordpress.org plugin slugs installed first, e.g. the base plugin for an add-on; not browser-verified yet).
+- **Don't enrol blindly.** A link that looks right but doesn't work is worse than none. Themes need `"type": "theme"`. An add-on needs `requires`. `*-pro` builds open unlicensed, so licensed features stay locked; not supported yet. Enrol one repo, click the link on a real PR, then add the next.
+- Depends on the bucket's CORS allowing `GET, HEAD` from `https://playground.wordpress.net` (set once on `themegrill-pr-artifacts`). Without it the site opens empty. Check: `curl -s -o /dev/null -D - -X OPTIONS -H "Origin: https://playground.wordpress.net" -H "Access-Control-Request-Method: GET" <a zip url>` must return `Access-Control-Allow-Origin`.
+- It only previews the primary ZIP, resets on reload, and uses SQLite and PHP-in-WebAssembly (no real MySQL, mail or cron). The link dies when the zip expires.
+- A caller can override with `preview-link: true|false` and the `preview-*` inputs. A failure here never blocks the build comment (the steps are `continue-on-error`).
+- To test a change to this feature without merging: push a throwaway branch in a pilot repo whose caller uses `pr-build-zip.yml@<your-branch>` plus `preview-tools-ref: <your-branch>`, run it with `gh workflow run pr-build-zip.yml --ref <that-branch>`, and read the link from the build step's log. Delete the branch afterwards.
+
 ## Verification
 
 Don't trust a green check alone — open the posted PR comment and confirm the download link actually resolves to a real, correctly-named ZIP. If a real PR branch has been open a while, make sure it's not stale against the default branch before re-testing a fix — merge the default branch in first, or the fix won't be present in the test run.
