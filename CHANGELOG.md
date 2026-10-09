@@ -2,6 +2,14 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-09 — QA review: gate only (step 1 of a staged build, not a review yet)
+
+First piece of a PR QA-review agent (request `tg-autopilot` as reviewer -> deep review). This change adds only the front half: `qa-review.yml` (`repository_dispatch: qa-review` or manual `workflow_dispatch`), `scripts/qa-review-gate.mjs` and `config/qa-review-repos.json` (allowlist; pilot is `themegrill/user-registration-pro` only).
+
+- The gate re-verifies everything against the live API (the dispatch payload is untrusted): allowlisted repo, PR open and not a draft, same-repo (forks denied), `head_sha` current, requester is not the bot, requester has `write` or higher (triage is not enough, each review will spend LLM money). A wrong token identity (not `tg-autopilot`) fails the job rather than going silently green.
+- `scripts/qa-review-comment.mjs` keeps ONE sticky PR comment, matched by bot login plus marker. Manual runs post nothing unless `post_comment` is true. The "accepted" comment is a placeholder and says no findings will follow.
+- No n8n flow, org webhook, static checks, LLM review or droplet sandbox yet; the only way in is a manual dispatch. Not yet verified: that the real `BOT_TOKEN_THEMEGRILL` authenticates as `tg-autopilot` and can read the pilot repo.
+
 ## 2026-10-05 — wp.org triage files issues in the pro repo first
 
 Issues now go to the product's `-pro` repo when it has one, otherwise to the free repo (`issue_repos` in `wporg/config/products.json`, replacing `fallback_repos`). The agent still reads the free repo's code and searches both repos for existing issues (Crisp files free-edition issues in the free repos, so a match can live there). The old "probe the free repo, fall back to pro" behavior is gone: the job now only checks that the token can write to the chosen issue repo and fails loudly if not (the topic is already marked seen, so re-run it by hand).

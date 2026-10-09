@@ -1,0 +1,118 @@
+# QA review of a PR, requested by adding tg-autopilot as a reviewer.
+#
+# Front door: n8n receives GitHub's pull_request `review_requested` webhook,
+# pre-filters it, and fires repository_dispatch `qa-review` here (same bridge
+# pattern as crisp-investigate-now.yml). workflow_dispatch is the manual
+# fallback: GitHub never retries a failed webhook delivery, so if n8n was down
+# when a review was requested, re-run it by hand.
+#
+# The dispatch payload is UNTRUSTED (anyone who finds the n8n URL, or holds a
+# dispatch token, can send anything). The gate job re-verifies everything
+# against the live GitHub API; nothing after it reads the payload again.
+# Untrusted values only ever reach scripts through `env:`, never through
+# `${{ }}` interpolation into a shell line.
+#
+# Design: QA-REVIEW.md (to be added). Pilot repo: themegrill/user-registration-pro,
+# see config/qa-review-repos.json.
+name: QA review
+
+on:
+  repository_dispatch:
+    types: [qa-review]
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "owner/name, must be listed in config/qa-review-repos.json"
+        required: true
+        type: string
+      pr:
+        description: "Pull request number"
+        required: true
+        type: string
+      head_sha:
+        description: "Optional: refuse to run unless the PR head is exactly this commit"
+        required: false
+        type: string
+        default: ""
+      post_comment:
+        description: "Post/update the sticky PR comment (off by default so manual tests stay silent)"
+        required: false
+        type: boolean
+        default: false
+
+# Never cancel: a denied or duplicate request must not kill a good in-flight
+# review. GitHub keeps at most one pending run per group (the newest).
+concurrency:
+  group: qa-review-${{ github.event.client_payload.repo || inputs.repo }}-${{ github.event.client_payload.pr || inputs.pr }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.gate.outputs.allowed }}
+      head_sha: ${{ steps.gate.outputs.head_sha }}
+    env:
+      QA_REPO: ${{ github.event.client_payload.repo || inputs.repo }}
+      QA_PR: ${{ github.event.client_payload.pr || inputs.pr }}
+      QA_HEAD_SHA: ${{ github.event.client_payload.head_sha || inputs.head_sha }}
+      # For a manual run the requester is whoever clicked "Run workflow".
+      QA_REQUESTER: ${{ github.event.client_payload.requester || github.actor }}
+      POST_COMMENT: ${{ github.event_name == 'repository_dispatch' || inputs.post_comment }}
+      # Each PAT is scoped to one org; the scripts pick by the repo's owner.
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      BOT_TOKEN_THEMEGRILL: ${{ secrets.BOT_TOKEN_THEMEGRILL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Gate (allowlist, PR state, same-repo, head sha, requester permission)
+        id: gate
+        run: node scripts/qa-review-gate.mjs
+
+      - name: Summarize gate result
+        if: always()
+        env:
+          ALLOWED: ${{ steps.gate.outputs.allowed }}
+          CODE: ${{ steps.gate.outputs.code }}
+          REASON: ${{ steps.gate.outputs.reason }}
+        run: |
+          {
+            echo "### QA review gate"
+            echo
+            echo "- Repo: \`$QA_REPO\` PR: \`$QA_PR\` requester: \`$QA_REQUESTER\`"
+            echo "- Allowed: \`${ALLOWED:-error}\` (\`${CODE:-n/a}\`)"
+            echo "- Reason: ${REASON:-gate step failed before deciding; see its log}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Only a permission denial is worth a PR comment (the requester would
+      # otherwise see nothing). Other denials (draft, stale, fork...) just log.
+      - name: Tell the requester they lack access
+        if: steps.gate.outputs.allowed == 'false' && steps.gate.outputs.notify == 'true' && env.POST_COMMENT == 'true'
+        env:
+          REASON: ${{ steps.gate.outputs.reason }}
+        run: |
+          printf '%s\n' "QA review not started: $REASON" > body.md
+          node scripts/qa-review-comment.mjs "$QA_REPO" "$QA_PR" body.md
+
+      # Placeholder until the static + LLM jobs exist (next step). Deliberately
+      # says so: a pilot PR must not look like it got a real review.
+      - name: Acknowledge the request
+        if: steps.gate.outputs.allowed == 'true' && env.POST_COMMENT == 'true'
+        env:
+          HEAD_SHA: ${{ steps.gate.outputs.head_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          printf '%s\n' \
+            "**QA review requested** by @$QA_REQUESTER for \`${HEAD_SHA:0:7}\`." \
+            "" \
+            "Request accepted. The review pipeline is not wired up yet, so no findings will follow. Run: $RUN_URL" \
+            > body.md
+          node scripts/qa-review-comment.mjs "$QA_REPO" "$QA_PR" body.md
