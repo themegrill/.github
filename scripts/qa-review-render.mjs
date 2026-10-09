@@ -27,21 +27,38 @@ export function sanitize(value, max = 300) {
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
-// ctx: { addedByFile: {file: Set<line>}, titles: [{title,file}] }
+// How many findings a change of this size can plausibly justify. Enforced here
+// in code because a prompt-only limit was ignored: a ONE-line PR got 1 risk,
+// 1 test and 3 scenarios (user-registration-pro#1610 dry run).
+export function limitsFor(changedLines) {
+  if (changedLines <= 10) return { risks: 1, manual: 2, scenarios: 1 };
+  if (changedLines <= 60) return { risks: 3, manual: 4, scenarios: 2 };
+  if (changedLines <= 300) return { risks: 5, manual: 6, scenarios: 3 };
+  return { risks: 8, manual: 8, scenarios: 5 };
+}
+
+// ctx: { addedByFile: {file: Set<line>}, titles: [{title,file}], limits?: {risks,manual,scenarios} }
 export function validateReview(raw, ctx) {
   const data = raw && typeof raw === "object" ? raw : {};
+  const limits = ctx.limits ?? { risks: 8, manual: 8, scenarios: 5 };
   const known = new Map(ctx.titles.map((t) => [t.title.trim(), t]));
   const dropped = { risks: 0, manual_tests: 0, new_scenarios: 0 };
+  // Why each item was discarded, for debugging. Contains model/PR-derived text,
+  // so the caller must only ever print it for explicitly public repos.
+  const detail = [];
 
   const risks = [];
   for (const r of asArray(data.risks)) {
     const line = Number(r?.line);
     const lines = ctx.addedByFile[r?.file];
-    if (!lines || !Number.isInteger(line) || !lines.has(line) || !sanitize(r.claim)) {
+    const why = !lines ? "file-not-in-shown-diff" : !Number.isInteger(line) ? "line-not-an-integer" : !lines.has(line) ? "line-not-an-added-line" : !sanitize(r.claim) ? "empty-claim" : null;
+    if (why) {
       dropped.risks++;
+      const added = lines ? [...lines].sort((a, b) => a - b) : [];
+      detail.push({ kind: "risk", why, file: String(r?.file).slice(0, 120), line: r?.line, addedRange: added.length ? [added[0], added[added.length - 1], added.length] : null });
       continue;
     }
-    if (risks.length < 8) risks.push({ file: r.file, line, claim: sanitize(r.claim), evidence: sanitize(r.evidence) });
+    if (risks.length < limits.risks) risks.push({ file: r.file, line, claim: sanitize(r.claim), evidence: sanitize(r.evidence) });
   }
 
   const manual = [];
@@ -50,22 +67,24 @@ export function validateReview(raw, ctx) {
     const key = typeof t?.title === "string" ? t.title.trim() : "";
     if (!known.has(key) || seen.has(key)) {
       dropped.manual_tests++;
+      detail.push({ kind: "manual_test", why: seen.has(key) ? "duplicate-title" : "title-not-in-index", title: key.slice(0, 120) });
       continue;
     }
     seen.add(key);
-    if (manual.length < 8) manual.push({ title: key, file: known.get(key).file, why: sanitize(t.why) });
+    if (manual.length < limits.manual) manual.push({ title: key, file: known.get(key).file, why: sanitize(t.why) });
   }
 
   const scenarios = [];
   for (const s of asArray(data.new_scenarios)) {
     if (!sanitize(s?.scenario)) {
       dropped.new_scenarios++;
+      detail.push({ kind: "scenario", why: "empty-scenario" });
       continue;
     }
-    if (scenarios.length < 5) scenarios.push({ scenario: sanitize(s.scenario), why: sanitize(s.why) });
+    if (scenarios.length < limits.scenarios) scenarios.push({ scenario: sanitize(s.scenario), why: sanitize(s.why) });
   }
 
-  return { summary: sanitize(data.summary, 700), risks, manual, scenarios, dropped };
+  return { summary: sanitize(data.summary, 700), risks, manual, scenarios, dropped, detail };
 }
 
 const STATE_ICON = { success: "✅", failure: "❌", cancelled: "⚪", skipped: "⚪", neutral: "⚪", timed_out: "❌", action_required: "⚠️" };
@@ -106,6 +125,9 @@ export function renderComment({ review, facts }) {
   L.push("### Possible risks in the changed lines");
   if (review.risks.length) {
     for (const r of review.risks) L.push(`- \`${sanitize(r.file, 200)}:${r.line}\`: ${r.claim}${r.evidence ? ` _(${r.evidence})_` : ""}`);
+  } else if (review.dropped.risks > 0) {
+    // Not "none found": the model raised something and it failed verification.
+    L.push(`_The model raised ${review.dropped.risks} possible issue(s) that could not be tied to a changed line in the diff, so none are shown. This is not a clean result; review the change by hand._`);
   } else {
     L.push("_None found that could be tied to a specific changed line._");
   }

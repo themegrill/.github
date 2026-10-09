@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { globToRegExp, mapAreas, annotatePatch, buildDiff, isSkipped } from "./qa-review-context.mjs";
 import { sanitize, validateReview, renderComment } from "./qa-review-render.mjs";
-import { escapeTags, runReview, buildUserMessage } from "./qa-review-run.mjs";
+import { escapeTags, runReview, buildUserMessage, REVIEW_FORMAT, REVIEW_SCHEMA } from "./qa-review-run.mjs";
 import { MARKER } from "./qa-review-comment.mjs";
 
 const PATCH = ["@@ -10,3 +10,4 @@ function x() {", " keep", "-old", "+new1", "+new2", " tail"].join("\n");
@@ -196,4 +196,96 @@ test("renderComment output never contains the sticky marker (only the poster add
     facts: { headSha: SHA, areas: {}, unmapped: [], checks: [], shown: [], omitted: [], noPatch: [], testsTouched: [], qaDataPresent: true, usage: null, model: "m" },
   });
   assert.ok(!body.includes(MARKER));
+});
+
+test("limitsFor scales with change size; validateReview enforces it", async () => {
+  const { limitsFor } = await import("./qa-review-render.mjs");
+  assert.deepEqual(limitsFor(1), { risks: 1, manual: 2, scenarios: 1 });
+  assert.deepEqual(limitsFor(10), { risks: 1, manual: 2, scenarios: 1 });
+  assert.deepEqual(limitsFor(11), { risks: 3, manual: 4, scenarios: 2 });
+  assert.deepEqual(limitsFor(61), { risks: 5, manual: 6, scenarios: 3 });
+  assert.deepEqual(limitsFor(5000), { risks: 8, manual: 8, scenarios: 5 });
+
+  const many = {
+    summary: "s",
+    risks: [11, 12].map((line) => ({ file: "includes/a.php", line, claim: `c${line}` })),
+    manual_tests: [{ title: "Verify login" }, { title: "Verify login" }],
+    new_scenarios: [{ scenario: "a" }, { scenario: "b" }, { scenario: "c" }],
+  };
+  const tiny = validateReview(many, { ...CTX, limits: limitsFor(1) });
+  assert.deepEqual([tiny.risks.length, tiny.manual.length, tiny.scenarios.length], [1, 1, 1]);
+  const none = validateReview(many, CTX); // no limits given => generous defaults
+  assert.deepEqual([none.risks.length, none.scenarios.length], [2, 3]);
+});
+
+test("runReview applies the size limit from the shown files' changed lines", async () => {
+  const chat = async () => ({
+    data: {
+      summary: "s",
+      risks: [11, 12].map((line) => ({ file: "includes/a.php", line, claim: `c${line}` })),
+      manual_tests: [],
+      new_scenarios: [{ scenario: "a" }, { scenario: "b" }, { scenario: "c" }],
+    },
+    usage: {},
+  });
+  const r = await runReview(args({ chat, reader: fakeReader({ listFiles: async () => [{ filename: "includes/a.php", status: "modified", patch: PATCH, additions: 2, deletions: 1 }] }) }));
+  assert.equal(r.changedLines, 3);
+  assert.equal(r.review.risks.length, 1);
+  assert.equal(r.review.scenarios.length, 1);
+});
+
+test("discard reasons are recorded, and an all-dropped risk list is not reported as clean", () => {
+  const r = validateReview(
+    {
+      summary: "s",
+      risks: [
+        { file: "nope.php", line: 1, claim: "c" },
+        { file: "includes/a.php", line: 10, claim: "context line" },
+        { file: "includes/a.php", line: "x", claim: "c" },
+      ],
+      manual_tests: [{ title: "Invented" }],
+    },
+    CTX
+  );
+  assert.deepEqual(r.detail.map((d) => d.why), ["file-not-in-shown-diff", "line-not-an-added-line", "line-not-an-integer", "title-not-in-index"]);
+  assert.deepEqual(r.detail[1].addedRange, [11, 12, 2]); // lets us see the model was near the real lines
+  const body = renderComment({
+    review: r,
+    facts: { headSha: SHA, areas: {}, unmapped: [], checks: [], shown: [], omitted: [], noPatch: [], testsTouched: [], qaDataPresent: true, usage: null, model: "m" },
+  });
+  assert.match(body, /raised 3 possible issue\(s\) that could not be tied/);
+  assert.ok(!body.includes("None found"));
+});
+
+test("runReview prints discard details only for explicitly public repos", async () => {
+  const bad = async () => ({ data: { summary: "s", risks: [{ file: "includes/a.php", line: 999, claim: "c" }] }, usage: {} });
+  const withRepo = (repo) => fakeReader({ getPr: async () => ({ title: "T", body: "", head: { sha: SHA }, base: { ref: "develop", repo } }) });
+  const logs = [];
+  const orig = console.log;
+  console.log = (m) => logs.push(String(m));
+  try {
+    await runReview(args({ chat: bad, reader: withRepo({ private: true }) }));
+    assert.equal(logs.filter((l) => l.startsWith("Discarded")).length, 0);
+    await runReview(args({ chat: bad, reader: withRepo({ private: false }) }));
+    assert.equal(logs.filter((l) => l.startsWith("Discarded")).length, 1);
+  } finally {
+    console.log = orig;
+  }
+});
+
+test("model call uses a strict schema whose keys match what the validator reads", async () => {
+  let seen;
+  await runReview(args({ chat: async (s, u, f, fmt) => ((seen = fmt), goodModel()) }));
+  assert.equal(seen, REVIEW_FORMAT);
+  assert.equal(REVIEW_FORMAT.json_schema.strict, true);
+  const top = REVIEW_SCHEMA;
+  assert.deepEqual(top.required.sort(), ["manual_tests", "new_scenarios", "risks", "summary"]);
+  assert.equal(top.additionalProperties, false);
+  // strict mode needs every property required and no extras, at every level
+  for (const key of ["risks", "manual_tests", "new_scenarios"]) {
+    const item = top.properties[key].items;
+    assert.deepEqual(item.required.sort(), Object.keys(item.properties).sort());
+    assert.equal(item.additionalProperties, false);
+  }
+  assert.ok(top.properties.manual_tests.items.properties.title); // the key the model was dropping
 });

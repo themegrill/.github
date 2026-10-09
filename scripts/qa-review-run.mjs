@@ -6,7 +6,18 @@ import { fileURLToPath } from "node:url";
 import { ghTokenForRepo } from "./github-client.mjs";
 import { chatJSONWithUsage } from "./openai-client.mjs";
 import { buildDiff, isTestFile, loadQaData, makeReader, mapAreas } from "./qa-review-context.mjs";
-import { renderComment, validateReview } from "./qa-review-render.mjs";
+import { limitsFor, renderComment, validateReview } from "./qa-review-render.mjs";
+
+const str = { type: "string" };
+const obj = (properties) => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
+// Strict structured output. Keep in sync with the "Output" section of prompts/qa-review.md.
+export const REVIEW_SCHEMA = obj({
+  summary: str,
+  risks: { type: "array", items: obj({ file: str, line: { type: "integer" }, claim: str, evidence: str }) },
+  manual_tests: { type: "array", items: obj({ title: str, why: str }) },
+  new_scenarios: { type: "array", items: obj({ scenario: str, why: str }) },
+});
+export const REVIEW_FORMAT = { type: "json_schema", json_schema: { name: "qa_review", strict: true, schema: REVIEW_SCHEMA } };
 
 const TAGS = "pr_title|pr_body|diff|knowledge|existing_test_cases|other_checks|areas_touched";
 
@@ -56,9 +67,11 @@ export async function runReview({ repo, prNumber, expectedSha, reader, chat, sys
     throw new Error("No reviewable diff: every changed file was skipped, binary, or over the size limit.");
   }
 
-  const { data, usage } = await chat(systemPrompt, buildUserMessage({ pr, areas, checks, qa, diff }), null);
+  const { data, usage } = await chat(systemPrompt, buildUserMessage({ pr, areas, checks, qa, diff }), null, REVIEW_FORMAT);
   if (!data || typeof data !== "object") throw new Error("Model returned unparseable output; nothing to post.");
-  const review = validateReview(data, { addedByFile: diff.addedByFile, titles: qa.titles });
+  // Size = what the model was actually shown, so a huge PR with a tiny shown part isn't over-credited.
+  const changedLines = files.filter((f) => diff.shown.includes(f.filename)).reduce((n, f) => n + (f.additions ?? 0) + (f.deletions ?? 0), 0);
+  const review = validateReview(data, { addedByFile: diff.addedByFile, titles: qa.titles, limits: limitsFor(changedLines) });
   // An empty summary means the model refused or derailed. Posting "no risks found"
   // from that would read as a clean bill of health, which is the wrong failure mode.
   if (!review.summary) throw new Error("Model returned no usable summary; refusing to post an empty review.");
@@ -83,7 +96,9 @@ export async function runReview({ repo, prNumber, expectedSha, reader, chat, sys
   // Fail safe: only an explicit `false` counts as public. The review is analysis
   // of the repo's code, and this workflow's own run summary/logs are public.
   const isPrivate = pr.base?.repo?.private !== false;
-  return { body, review, usage, isPrivate };
+  // Discard reasons quote model/PR-derived text: public repos only, never private.
+  if (!isPrivate && review.detail.length) console.log(`Discarded suggestions: ${JSON.stringify(review.detail)}`);
+  return { body, review, usage, isPrivate, changedLines };
 }
 
 async function main() {
