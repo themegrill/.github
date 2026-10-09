@@ -128,6 +128,41 @@ on:
         type: number
         required: false
         default: 30
+      preview-link:
+        description: |
+          Add a "Try this PR in a live test site" link to the PR comment: a
+          WordPress Playground site (runs in the browser, no install) with this
+          build already installed and activated. Previews the primary ZIP only.
+          Off by default. REQUIRES the bucket's CORS to allow GET/HEAD from
+          https://playground.wordpress.net, or the link opens an empty site.
+        type: boolean
+        required: false
+        default: false
+      preview-type:
+        description: 'What the primary ZIP is: "plugin" or "theme". Only used with preview-link.'
+        type: string
+        required: false
+        default: 'plugin'
+      preview-landing-page:
+        description: 'Site path the preview opens on, e.g. /wp-admin/admin.php?page=my-plugin. Only used with preview-link.'
+        type: string
+        required: false
+        default: '/wp-admin/plugins.php'
+      preview-php:
+        description: 'PHP version of the preview site (7.4 to 8.4). Only used with preview-link.'
+        type: string
+        required: false
+        default: '8.2'
+      preview-wp:
+        description: 'WordPress version of the preview site: latest, or a version like 6.8. Only used with preview-link.'
+        type: string
+        required: false
+        default: 'latest'
+      preview-tools-ref:
+        description: 'Ref of themegrill/.github to take scripts/preview-link.mjs from. Leave as is; set to a branch only to test a change.'
+        type: string
+        required: false
+        default: 'master'
       timezone:
         description: 'Timezone for the "last updated" stamp in the comment.'
         type: string
@@ -364,6 +399,31 @@ jobs:
             $ENDPOINT --no-progress --content-type application/zip
           echo "url=${{ inputs.public-base-url }}/${KEY}" >> "$GITHUB_OUTPUT"
 
+      # Optional extra. Must never break the build comment: both steps are
+      # continue-on-error, and the comment simply omits the link if there is none.
+      - name: Check out preview tooling
+        if: inputs.preview-link
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: themegrill/.github
+          ref: ${{ inputs.preview-tools-ref }}
+          path: .preview-tools
+          sparse-checkout: scripts/preview-link.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Build preview link
+        id: preview
+        if: inputs.preview-link
+        continue-on-error: true
+        env:
+          PREVIEW_ZIP_URL: ${{ steps.upload.outputs.url }}
+          PREVIEW_TYPE: ${{ inputs.preview-type }}
+          PREVIEW_LANDING_PAGE: ${{ inputs.preview-landing-page }}
+          PREVIEW_PHP: ${{ inputs.preview-php }}
+          PREVIEW_WP: ${{ inputs.preview-wp }}
+        run: node .preview-tools/scripts/preview-link.mjs
+
       - name: Stamp build time
         id: stamp
         run: echo "at=$(TZ='${{ inputs.timezone }}' date '+%b %-d, %Y %-I:%M %p %Z')" >> "$GITHUB_OUTPUT"
@@ -389,6 +449,7 @@ jobs:
           LABEL: ${{ inputs.label }}
           EXTRA_LABEL: ${{ inputs.extra-label }}
           EXTRA_NAME: ${{ steps.zip2.outputs.name }}
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
         run: |
           set -euo pipefail
           {
@@ -406,6 +467,10 @@ jobs:
               else
                 echo "**[:arrow_down: Download ${{ steps.zip2.outputs.name }}](${{ steps.upload2.outputs.url }})** (${{ steps.zip2.outputs.size }})"
               fi
+            fi
+            if [ -n "$PREVIEW_URL" ]; then
+              echo ""
+              echo "**[:rocket: Try this PR in a live test site]($PREVIEW_URL)** (a fresh WordPress opens in your browser with this build installed and you logged in as admin; it resets when you close the tab)"
             fi
             echo ""
             echo "Installs directly via **Plugins → Add New → Upload Plugin**."
