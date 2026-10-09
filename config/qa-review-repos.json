@@ -1,8 +1,7 @@
 {
-  "wpeverest": [
-    "user-registration"
-  ],
+  "wpeverest": [],
   "themegrill": [
+    "user-registration",
     "user-registration-pro"
   ]
 }
