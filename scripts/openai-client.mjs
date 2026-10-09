@@ -8,7 +8,10 @@ export async function chatJSON(systemPrompt, userContent, fallback) {
 }
 
 // Same call, plus the token usage OpenAI reports -- feeds the event log.
-export async function chatJSONWithUsage(systemPrompt, userContent, fallback) {
+// responseFormat defaults to loose JSON mode (existing callers unchanged). Pass
+// {type:"json_schema", json_schema:{name, strict:true, schema}} to make the API
+// enforce the shape -- loose mode lets the model rename keys (seen in QA review).
+export async function chatJSONWithUsage(systemPrompt, userContent, fallback, responseFormat = { type: "json_object" }) {
   if (!OPENAI_API_KEY || !CLASSIFY_MODEL) {
     throw new Error("Missing required env var: OPENAI_API_KEY or CLASSIFY_MODEL");
   }
@@ -20,7 +23,7 @@ export async function chatJSONWithUsage(systemPrompt, userContent, fallback) {
     },
     body: JSON.stringify({
       model: CLASSIFY_MODEL,
-      response_format: { type: "json_object" },
+      response_format: responseFormat,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userContent },

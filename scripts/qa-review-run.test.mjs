@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { globToRegExp, mapAreas, annotatePatch, buildDiff, isSkipped } from "./qa-review-context.mjs";
 import { sanitize, validateReview, renderComment } from "./qa-review-render.mjs";
-import { escapeTags, runReview, buildUserMessage } from "./qa-review-run.mjs";
+import { escapeTags, runReview, buildUserMessage, REVIEW_FORMAT, REVIEW_SCHEMA } from "./qa-review-run.mjs";
 import { MARKER } from "./qa-review-comment.mjs";
 
 const PATCH = ["@@ -10,3 +10,4 @@ function x() {", " keep", "-old", "+new1", "+new2", " tail"].join("\n");
@@ -271,4 +271,21 @@ test("runReview prints discard details only for explicitly public repos", async 
   } finally {
     console.log = orig;
   }
+});
+
+test("model call uses a strict schema whose keys match what the validator reads", async () => {
+  let seen;
+  await runReview(args({ chat: async (s, u, f, fmt) => ((seen = fmt), goodModel()) }));
+  assert.equal(seen, REVIEW_FORMAT);
+  assert.equal(REVIEW_FORMAT.json_schema.strict, true);
+  const top = REVIEW_SCHEMA;
+  assert.deepEqual(top.required.sort(), ["manual_tests", "new_scenarios", "risks", "summary"]);
+  assert.equal(top.additionalProperties, false);
+  // strict mode needs every property required and no extras, at every level
+  for (const key of ["risks", "manual_tests", "new_scenarios"]) {
+    const item = top.properties[key].items;
+    assert.deepEqual(item.required.sort(), Object.keys(item.properties).sort());
+    assert.equal(item.additionalProperties, false);
+  }
+  assert.ok(top.properties.manual_tests.items.properties.title); // the key the model was dropping
 });

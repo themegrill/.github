@@ -8,6 +8,17 @@ import { chatJSONWithUsage } from "./openai-client.mjs";
 import { buildDiff, isTestFile, loadQaData, makeReader, mapAreas } from "./qa-review-context.mjs";
 import { limitsFor, renderComment, validateReview } from "./qa-review-render.mjs";
 
+const str = { type: "string" };
+const obj = (properties) => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
+// Strict structured output. Keep in sync with the "Output" section of prompts/qa-review.md.
+export const REVIEW_SCHEMA = obj({
+  summary: str,
+  risks: { type: "array", items: obj({ file: str, line: { type: "integer" }, claim: str, evidence: str }) },
+  manual_tests: { type: "array", items: obj({ title: str, why: str }) },
+  new_scenarios: { type: "array", items: obj({ scenario: str, why: str }) },
+});
+export const REVIEW_FORMAT = { type: "json_schema", json_schema: { name: "qa_review", strict: true, schema: REVIEW_SCHEMA } };
+
 const TAGS = "pr_title|pr_body|diff|knowledge|existing_test_cases|other_checks|areas_touched";
 
 // Untrusted text must not be able to close one of our data blocks early.
@@ -56,7 +67,7 @@ export async function runReview({ repo, prNumber, expectedSha, reader, chat, sys
     throw new Error("No reviewable diff: every changed file was skipped, binary, or over the size limit.");
   }
 
-  const { data, usage } = await chat(systemPrompt, buildUserMessage({ pr, areas, checks, qa, diff }), null);
+  const { data, usage } = await chat(systemPrompt, buildUserMessage({ pr, areas, checks, qa, diff }), null, REVIEW_FORMAT);
   if (!data || typeof data !== "object") throw new Error("Model returned unparseable output; nothing to post.");
   // Size = what the model was actually shown, so a huge PR with a tiny shown part isn't over-credited.
   const changedLines = files.filter((f) => diff.shown.includes(f.filename)).reduce((n, f) => n + (f.additions ?? 0) + (f.deletions ?? 0), 0);
