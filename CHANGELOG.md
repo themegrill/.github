@@ -2,47 +2,15 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
-## 2026-10-09 — QA review: tuned, then put ON HOLD (read this before resuming)
+## 2026-10-09 — QA review bot: built, run by hand only, ON HOLD
 
-**Status: on hold, manual dispatch only.** Nothing triggers it: no n8n flow, no org webhook. Deliberately not wired up (see "Why on hold").
+A bot that reviews a PR on request: it reads the diff and the repo's `.themegrill-qa/` notes and writes one advisory comment (summary, risks tied to changed lines, existing test cases to run by hand). Files: `qa-review.yml`, `scripts/qa-review-*.mjs`, `prompts/qa-review.md`, `config/qa-review-repos.json`.
 
-What this change does to the review job (all verified against real runs on public `themegrill/user-registration` PRs #1428, #1393, #1392, `post_comment=false`):
-- Findings are capped by change size in code (`limitsFor`): a one-line PR got 1 risk, 1 test and 3 scenarios before; now at most 1/2/1.
-- Prompt: no "if X relies on Y" speculation, no repeating the PR's own test steps, tests must be about the same feature.
-- Strict structured output (`REVIEW_FORMAT`; `chatJSONWithUsage` gained an optional 4th param, other callers unchanged). With loose JSON mode the model sometimes returned test suggestions without the `title` key, so 4-7 of them were discarded per run on #1392 and the comment looked empty (2 of 4 runs). Risks were never discarded in about 11 runs of that PR, so the `file:line` citations are reliable. Same PR, same model: results still vary run to run.
-- The comment no longer says "none found" when the model raised risks that failed verification. Discard reasons are logged for PUBLIC target repos only (they quote model/PR text); the review itself goes to the job log/summary only for explicitly public repos, never private ones (this repo is public).
-- Allowlist: added `themegrill/user-registration` (public; appears to be the same repo as `wpeverest/user-registration`, same PR numbers under both names). The `wpeverest` org token (`BOT_TOKEN`) gets 403 on the collaborator-permission lookup, so don't enroll repos by their `wpeverest/` name until that token is fixed.
-- Measured: about 9-13k input and 0.3-0.8k output tokens per review on `gpt-5.4-mini`. No price row in `pricing.mjs`, so cost is unmeasured (roughly a cent by estimate).
-
-### Why on hold
-- The reviewer only reads the diff; it never runs the plugin. It overlaps Copilot (already auto-requested), `security-review.yml` and PHPCS, and its test suggestions point QA at cases they already know. On its own it does not save QA time or catch bugs that reviewers miss.
-- `ThemeGrill/claudegrill` already runs real Playwright e2e on PRs (`pr / suite` check, `@claudegrill suite` to re-run), deterministic and with no AI key. Its agent tier (`pr-qa.yml`, `pr-command.yml`, skill `pr-qa-review`) is the closest thing to a QA agent that exists, but it runs Claude (needs `ANTHROPIC_API_KEY`, which this org does not use) and is deliberately switched off ("the team removed AI from the PR path"). Do not build a second e2e system next to it.
-
-### If resumed
-1. Spike locally first (no CI, nothing published): an OpenAI agent (`opencode`, as in the Crisp job) following a PR's "How to test" steps with Playwright against a site booted by claudegrill's `plugins/claudegrill/scripts/boot-wp.mjs` (Playground, pro licence supported). Candidate: `user-registration-pro#1610`. Judge verdicts on PRs where the right answer is known.
-2. Only if that is trustworthy: run it in a PRIVATE repo, not here. This repo is public, so its logs and run summaries are public, and an agent working on a private repo's PR would publish that code. (One dry run already leaked a private-PR review into a public summary; the run was deleted and the code now withholds it.)
-3. Then the trigger: org webhook -> n8n -> `repository_dispatch` into the private repo, reusing `qa-review-gate.mjs` (requester must have write access; the payload is untrusted). Use a dedicated spend-capped OpenAI key, not the shared one.
-- Open items: the pro repo's `BOT_TOKEN_THEMEGRILL` PAT lacks "Checks: read" (the "other checks" line says "not available" there); `@claudegrill suite` triggers only for collaborators, and `tg-autopilot` is one.
-
-## 2026-10-09 — QA review: advisory review job (step 2), scoped to complement existing checks
-
-Found while inspecting the pilot repo (`user-registration-pro`): it already has PHPCS-on-PR (`pr-code-sniff.yml`), an AI security scan (`security-review.yml`), and `ThemeGrill/claudegrill`'s deterministic E2E suite with `.themegrill-qa/` test cases and knowledge. claudegrill's README says AI was deliberately removed from the PR path. So the original plan (own static tools + droplet WordPress sandbox) would have duplicated all of that, and was dropped for now. This bot is opt-in only (someone must request `tg-autopilot` as reviewer) and is scoped to what those checks don't do.
-
-- New `review` job in `qa-review.yml`, after the gate. It never checks out or runs PR code: it reads the diff and the base branch's `.themegrill-qa/` (`suite.json` area map, `testcase-index.json` titles, `knowledge.md`) through the API, plus the other checks' results, and makes ONE model call (`prompts/qa-review.md`, default `gpt-5.4-mini`, override with the `QA_REVIEW_MODEL` repo variable).
-- Output is one sticky advisory comment: summary, areas touched (deterministic, from `suite.json`), risks, existing test cases worth running by hand, and scenarios with no test case.
-- Findings are verified, not trusted (see the CHANGELOG 2026-10-05 note on uncalibrated confidence): a risk is shown only if its `file:line` is an ADDED line in the diff; a suggested test only if its title exists verbatim in the index. Everything else is dropped and counted in the comment footer. No confidence number is shown. Model output is stripped of URLs, `@mentions`, HTML and backticks. An unparseable or empty model answer fails the job instead of posting "no risks found".
-- Not verified yet against a real model call: output quality, and cost (`pricing.mjs` has no row for the default model, so cost shows only if you add one). Uses the shared `OPENAI_API_KEY`; a dedicated spend-capped key is advisable before n8n makes this fire automatically.
-- Still manual dispatch only; no n8n flow or org webhook yet.
-- **Privacy:** `themegrill/.github` is PUBLIC, so run summaries/logs are public. The first dry run wrote a review of a private-repo PR into a public run summary (one-line change; the run was deleted). The review body now goes to the run summary only when the target repo is explicitly public; for private repos it is posted to the PR only (`post_comment=true`). Never log or summarize review content, PR text or diffs from private repos in this repo's runs.
-- The bot's fine-grained PAT cannot read check runs (403, needs "Checks: read"); that section is best-effort and says "not available" until the PAT is updated.
-
-## 2026-10-09 — QA review: gate only (step 1 of a staged build, not a review yet)
-
-First piece of a PR QA-review agent (request `tg-autopilot` as reviewer -> deep review). This change adds only the front half: `qa-review.yml` (`repository_dispatch: qa-review` or manual `workflow_dispatch`), `scripts/qa-review-gate.mjs` and `config/qa-review-repos.json` (allowlist; pilot is `themegrill/user-registration-pro` only).
-
-- The gate re-verifies everything against the live API (the dispatch payload is untrusted): allowlisted repo, PR open and not a draft, same-repo (forks denied), `head_sha` current, requester is not the bot, requester has `write` or higher (triage is not enough, each review will spend LLM money). A wrong token identity (not `tg-autopilot`) fails the job rather than going silently green.
-- `scripts/qa-review-comment.mjs` keeps ONE sticky PR comment, matched by bot login plus marker. Manual runs post nothing unless `post_comment` is true. The "accepted" comment is a placeholder and says no findings will follow.
-- No n8n flow, org webhook, static checks, LLM review or droplet sandbox yet; the only way in is a manual dispatch. Not yet verified: that the real `BOT_TOKEN_THEMEGRILL` authenticates as `tg-autopilot` and can read the pilot repo.
+- **Run it:** Actions -> "QA review" -> Run workflow (`repo`, `pr`, optional `post_comment`). Only allowlisted repos, and the requester needs write access. Nothing triggers it automatically: there is no n8n flow or webhook.
+- **Built to not mislead:** a risk is shown only if its cited line is an added line in the diff, and a suggested test only if it exists in the repo's test index; anything else is dropped and counted. No confidence number. Review text for a private repo is never written to this public repo's run summary or logs.
+- **Why on hold:** it only reads code and never runs the plugin, and it overlaps Copilot, `security-review.yml` and PHPCS. `ThemeGrill/claudegrill` already runs the real Playwright e2e, and its AI agent tier needs an Anthropic key and is switched off on purpose. Don't build a second e2e system next to it.
+- **If resumed:** (1) spike locally first: an OpenAI agent (`opencode`) following a PR's "How to test" steps against a site from claudegrill's `boot-wp.mjs`, e.g. on `user-registration-pro#1610`; (2) only if it works, run it in a private repo, because this repo is public; (3) then add the n8n trigger and a dedicated, spend-capped OpenAI key.
+- **Gotchas:** use `themegrill/user-registration`, not the `wpeverest/` name (that org's token gets 403). The pro repo's token can't read check runs, so that line says "not available". The same PR can get somewhat different reviews run to run. About 9-13k input tokens per review; cost not measured.
 
 ## 2026-10-05 — wp.org triage files issues in the pro repo first
 
