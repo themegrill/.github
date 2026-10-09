@@ -2,6 +2,28 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-09 — QA review: tuned, then put ON HOLD (read this before resuming)
+
+**Status: on hold, manual dispatch only.** Nothing triggers it: no n8n flow, no org webhook. Deliberately not wired up (see "Why on hold").
+
+What this change does to the review job (all verified against real runs on public `themegrill/user-registration` PRs #1428, #1393, #1392, `post_comment=false`):
+- Findings are capped by change size in code (`limitsFor`): a one-line PR got 1 risk, 1 test and 3 scenarios before; now at most 1/2/1.
+- Prompt: no "if X relies on Y" speculation, no repeating the PR's own test steps, tests must be about the same feature.
+- Strict structured output (`REVIEW_FORMAT`; `chatJSONWithUsage` gained an optional 4th param, other callers unchanged). With loose JSON mode the model sometimes returned test suggestions without the `title` key, so 4-7 of them were discarded per run on #1392 and the comment looked empty (2 of 4 runs). Risks were never discarded in about 11 runs of that PR, so the `file:line` citations are reliable. Same PR, same model: results still vary run to run.
+- The comment no longer says "none found" when the model raised risks that failed verification. Discard reasons are logged for PUBLIC target repos only (they quote model/PR text); the review itself goes to the job log/summary only for explicitly public repos, never private ones (this repo is public).
+- Allowlist: added `themegrill/user-registration` (public; appears to be the same repo as `wpeverest/user-registration`, same PR numbers under both names). The `wpeverest` org token (`BOT_TOKEN`) gets 403 on the collaborator-permission lookup, so don't enroll repos by their `wpeverest/` name until that token is fixed.
+- Measured: about 9-13k input and 0.3-0.8k output tokens per review on `gpt-5.4-mini`. No price row in `pricing.mjs`, so cost is unmeasured (roughly a cent by estimate).
+
+### Why on hold
+- The reviewer only reads the diff; it never runs the plugin. It overlaps Copilot (already auto-requested), `security-review.yml` and PHPCS, and its test suggestions point QA at cases they already know. On its own it does not save QA time or catch bugs that reviewers miss.
+- `ThemeGrill/claudegrill` already runs real Playwright e2e on PRs (`pr / suite` check, `@claudegrill suite` to re-run), deterministic and with no AI key. Its agent tier (`pr-qa.yml`, `pr-command.yml`, skill `pr-qa-review`) is the closest thing to a QA agent that exists, but it runs Claude (needs `ANTHROPIC_API_KEY`, which this org does not use) and is deliberately switched off ("the team removed AI from the PR path"). Do not build a second e2e system next to it.
+
+### If resumed
+1. Spike locally first (no CI, nothing published): an OpenAI agent (`opencode`, as in the Crisp job) following a PR's "How to test" steps with Playwright against a site booted by claudegrill's `plugins/claudegrill/scripts/boot-wp.mjs` (Playground, pro licence supported). Candidate: `user-registration-pro#1610`. Judge verdicts on PRs where the right answer is known.
+2. Only if that is trustworthy: run it in a PRIVATE repo, not here. This repo is public, so its logs and run summaries are public, and an agent working on a private repo's PR would publish that code. (One dry run already leaked a private-PR review into a public summary; the run was deleted and the code now withholds it.)
+3. Then the trigger: org webhook -> n8n -> `repository_dispatch` into the private repo, reusing `qa-review-gate.mjs` (requester must have write access; the payload is untrusted). Use a dedicated spend-capped OpenAI key, not the shared one.
+- Open items: the pro repo's `BOT_TOKEN_THEMEGRILL` PAT lacks "Checks: read" (the "other checks" line says "not available" there); `@claudegrill suite` triggers only for collaborators, and `tg-autopilot` is one.
+
 ## 2026-10-09 — QA review: advisory review job (step 2), scoped to complement existing checks
 
 Found while inspecting the pilot repo (`user-registration-pro`): it already has PHPCS-on-PR (`pr-code-sniff.yml`), an AI security scan (`security-review.yml`), and `ThemeGrill/claudegrill`'s deterministic E2E suite with `.themegrill-qa/` test cases and knowledge. claudegrill's README says AI was deliberately removed from the PR path. So the original plan (own static tools + droplet WordPress sandbox) would have duplicated all of that, and was dropped for now. This bot is opt-in only (someone must request `tg-autopilot` as reviewer) and is scoped to what those checks don't do.
