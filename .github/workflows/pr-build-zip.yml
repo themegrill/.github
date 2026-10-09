@@ -130,36 +130,39 @@ on:
         default: 30
       preview-link:
         description: |
-          Add a "Try this PR in a live test site" link to the PR comment: a
-          WordPress Playground site (runs in the browser, no install) with this
-          build already installed and activated. Previews the primary ZIP only.
-          Off by default. REQUIRES the bucket's CORS to allow GET/HEAD from
-          https://playground.wordpress.net, or the link opens an empty site.
-        type: boolean
+          "Try this PR in a live test site" link in the PR comment: a WordPress
+          Playground site (runs in the browser, no install) with this build
+          installed and activated. Previews the primary ZIP only.
+            auto  (default) -- only repos listed in config/preview-link-repos.json
+                    in themegrill/.github get it. No change needed in the caller.
+            true  -- force it on for this repo, using the preview-* inputs below.
+            false -- never.
+          Needs the bucket's CORS to allow GET/HEAD from https://playground.wordpress.net.
+        type: string
         required: false
-        default: false
+        default: 'auto'
       preview-type:
-        description: 'What the primary ZIP is: "plugin" or "theme". Only used with preview-link.'
+        description: 'Overrides the enrolled entry: "plugin" or "theme". Empty = entry, then plugin.'
         type: string
         required: false
-        default: 'plugin'
+        default: ''
       preview-landing-page:
-        description: 'Site path the preview opens on, e.g. /wp-admin/admin.php?page=my-plugin. Only used with preview-link.'
+        description: 'Overrides the enrolled entry: site path to open, e.g. /wp-admin/admin.php?page=my-plugin. Empty = entry, then /wp-admin/plugins.php.'
         type: string
         required: false
-        default: '/wp-admin/plugins.php'
+        default: ''
       preview-php:
-        description: 'PHP version of the preview site (7.4 to 8.4). Only used with preview-link.'
+        description: 'Overrides the enrolled entry: PHP version 7.4 to 8.4. Empty = entry, then 8.2.'
         type: string
         required: false
-        default: '8.2'
+        default: ''
       preview-wp:
-        description: 'WordPress version of the preview site: latest, or a version like 6.8. Only used with preview-link.'
+        description: 'Overrides the enrolled entry: "latest" or a version like 6.8. Empty = entry, then latest.'
         type: string
         required: false
-        default: 'latest'
+        default: ''
       preview-tools-ref:
-        description: 'Ref of themegrill/.github to take scripts/preview-link.mjs from. Leave as is; set to a branch only to test a change.'
+        description: 'Ref of themegrill/.github to take the preview script and enrolment list from. Leave as is; set to a branch only to test a change.'
         type: string
         required: false
         default: 'master'
@@ -402,21 +405,26 @@ jobs:
       # Optional extra. Must never break the build comment: both steps are
       # continue-on-error, and the comment simply omits the link if there is none.
       - name: Check out preview tooling
-        if: inputs.preview-link
+        if: inputs.preview-link != 'false'
         continue-on-error: true
         uses: actions/checkout@v4
         with:
           repository: themegrill/.github
           ref: ${{ inputs.preview-tools-ref }}
           path: .preview-tools
-          sparse-checkout: scripts/preview-link.mjs
+          sparse-checkout: |
+            scripts/preview-link.mjs
+            config/preview-link-repos.json
           sparse-checkout-cone-mode: false
 
       - name: Build preview link
         id: preview
-        if: inputs.preview-link
+        if: inputs.preview-link != 'false'
         continue-on-error: true
         env:
+          PREVIEW_LINK: ${{ inputs.preview-link }}
+          PREVIEW_REPO: ${{ github.repository }}
+          PREVIEW_CONFIG_PATH: .preview-tools/config/preview-link-repos.json
           PREVIEW_ZIP_URL: ${{ steps.upload.outputs.url }}
           PREVIEW_TYPE: ${{ inputs.preview-type }}
           PREVIEW_LANDING_PAGE: ${{ inputs.preview-landing-page }}

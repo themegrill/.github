@@ -68,3 +68,76 @@ test("buildBlueprint is pure (no mutation of its input)", () => {
   buildBlueprint(OK);
   assert.equal(JSON.stringify(OK), copy);
 });
+
+import { resolveSettings } from "./preview-link.mjs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+test("resolveSettings: auto only for enrolled repos; caller input > entry > default", () => {
+  const none = { type: "", landingPage: "", php: "", wp: "" };
+  assert.equal(resolveSettings({ mode: "auto", entry: undefined, input: none }), null);
+  assert.equal(resolveSettings({ mode: undefined, entry: undefined, input: none }), null); // default is auto
+  assert.equal(resolveSettings({ mode: "false", entry: { type: "theme" }, input: none }), null);
+  assert.deepEqual(resolveSettings({ mode: "auto", entry: {}, input: none }), { type: "plugin", landingPage: "/wp-admin/plugins.php", php: "8.2", wp: "latest", requires: [] });
+  const s = resolveSettings({ mode: "auto", entry: { type: "theme", php: "8.1", requires: ["user-registration"] }, input: { ...none, php: "8.3" } });
+  assert.deepEqual([s.type, s.php, s.requires], ["theme", "8.3", ["user-registration"]]); // caller beats entry
+  assert.ok(resolveSettings({ mode: "true", entry: undefined, input: none })); // force on, no entry needed
+  assert.throws(() => resolveSettings({ mode: "yes", entry: {}, input: none }), /auto.*true.*false/);
+});
+
+test("requires: base plugins are installed from wordpress.org before the build, and slugs are validated", () => {
+  const bp = decode(buildPreviewUrl({ ...OK, requires: ["user-registration"] }));
+  assert.deepEqual(bp.steps.map((s) => s.step), ["login", "installPlugin", "installPlugin"]);
+  assert.deepEqual(bp.steps[1].pluginData, { resource: "wordpress.org/plugins", slug: "user-registration" });
+  assert.equal(bp.steps[2].pluginData.url, OK.zipUrl); // ours last
+  for (const bad of [["Bad Slug"], ["a/b"], ["x\"y"], [""], "user-registration"]) {
+    assert.ok(validate({ ...OK, requires: bad }), JSON.stringify(bad));
+  }
+});
+
+// Run the script exactly as the workflow does (env in, stdout / GITHUB_OUTPUT out).
+function run(env) {
+  const dir = mkdtempSync(join(tmpdir(), "preview-"));
+  const config = join(dir, "repos.json");
+  writeFileSync(config, JSON.stringify({ "org/enrolled": { type: "plugin" } }));
+  const out = join(dir, "gh-output");
+  writeFileSync(out, "");
+  const r = spawnSync(process.execPath, ["scripts/preview-link.mjs"], {
+    env: { PATH: process.env.PATH, PREVIEW_CONFIG_PATH: config, PREVIEW_ZIP_URL: OK.zipUrl, GITHUB_OUTPUT: out, ...env },
+    encoding: "utf8",
+  });
+  return { status: r.status, stdout: r.stdout, stderr: r.stderr, output: readFileSync(out, "utf8") };
+}
+
+test("script: enrolled repo gets a link in GITHUB_OUTPUT; others get nothing and still succeed", () => {
+  const yes = run({ PREVIEW_REPO: "org/enrolled" });
+  assert.equal(yes.status, 0);
+  assert.match(yes.output, /^url=https:\/\/playground\.wordpress\.net\//);
+
+  const no = run({ PREVIEW_REPO: "org/other" });
+  assert.equal(no.status, 0); // must never fail the build over this
+  assert.equal(no.output, "");
+  assert.match(no.stdout, /not enrolled/);
+
+  assert.equal(run({ PREVIEW_REPO: "org/enrolled", PREVIEW_LINK: "false" }).output, "");
+  assert.match(run({ PREVIEW_REPO: "org/other", PREVIEW_LINK: "true" }).output, /^url=/); // forced on
+});
+
+test("script: bad input is a warning + non-zero exit (the workflow step is continue-on-error)", () => {
+  const r = run({ PREVIEW_REPO: "org/enrolled", PREVIEW_ZIP_URL: "http://insecure.test/a.zip" });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /::warning::Preview link not generated/);
+  assert.equal(r.output, "");
+  assert.equal(run({ PREVIEW_REPO: "org/enrolled", PREVIEW_LINK: "bogus" }).status, 1);
+});
+
+test("the real enrolment file parses and every entry passes validation", () => {
+  const cfg = JSON.parse(readFileSync(new URL("../config/preview-link-repos.json", import.meta.url), "utf8"));
+  for (const [repo, entry] of Object.entries(cfg)) {
+    assert.match(repo, /^[\w.-]+\/[\w.-]+$/);
+    const s = resolveSettings({ mode: "auto", entry, input: {} });
+    assert.equal(validate({ zipUrl: OK.zipUrl, ...s }), null, repo);
+  }
+});
