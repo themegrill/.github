@@ -43,13 +43,19 @@ export function validateReview(raw, ctx) {
   const limits = ctx.limits ?? { risks: 8, manual: 8, scenarios: 5 };
   const known = new Map(ctx.titles.map((t) => [t.title.trim(), t]));
   const dropped = { risks: 0, manual_tests: 0, new_scenarios: 0 };
+  // Why each item was discarded, for debugging. Contains model/PR-derived text,
+  // so the caller must only ever print it for explicitly public repos.
+  const detail = [];
 
   const risks = [];
   for (const r of asArray(data.risks)) {
     const line = Number(r?.line);
     const lines = ctx.addedByFile[r?.file];
-    if (!lines || !Number.isInteger(line) || !lines.has(line) || !sanitize(r.claim)) {
+    const why = !lines ? "file-not-in-shown-diff" : !Number.isInteger(line) ? "line-not-an-integer" : !lines.has(line) ? "line-not-an-added-line" : !sanitize(r.claim) ? "empty-claim" : null;
+    if (why) {
       dropped.risks++;
+      const added = lines ? [...lines].sort((a, b) => a - b) : [];
+      detail.push({ kind: "risk", why, file: String(r?.file).slice(0, 120), line: r?.line, addedRange: added.length ? [added[0], added[added.length - 1], added.length] : null });
       continue;
     }
     if (risks.length < limits.risks) risks.push({ file: r.file, line, claim: sanitize(r.claim), evidence: sanitize(r.evidence) });
@@ -61,6 +67,7 @@ export function validateReview(raw, ctx) {
     const key = typeof t?.title === "string" ? t.title.trim() : "";
     if (!known.has(key) || seen.has(key)) {
       dropped.manual_tests++;
+      detail.push({ kind: "manual_test", why: seen.has(key) ? "duplicate-title" : "title-not-in-index", title: key.slice(0, 120) });
       continue;
     }
     seen.add(key);
@@ -71,12 +78,13 @@ export function validateReview(raw, ctx) {
   for (const s of asArray(data.new_scenarios)) {
     if (!sanitize(s?.scenario)) {
       dropped.new_scenarios++;
+      detail.push({ kind: "scenario", why: "empty-scenario" });
       continue;
     }
     if (scenarios.length < limits.scenarios) scenarios.push({ scenario: sanitize(s.scenario), why: sanitize(s.why) });
   }
 
-  return { summary: sanitize(data.summary, 700), risks, manual, scenarios, dropped };
+  return { summary: sanitize(data.summary, 700), risks, manual, scenarios, dropped, detail };
 }
 
 const STATE_ICON = { success: "✅", failure: "❌", cancelled: "⚪", skipped: "⚪", neutral: "⚪", timed_out: "❌", action_required: "⚠️" };
@@ -117,6 +125,9 @@ export function renderComment({ review, facts }) {
   L.push("### Possible risks in the changed lines");
   if (review.risks.length) {
     for (const r of review.risks) L.push(`- \`${sanitize(r.file, 200)}:${r.line}\`: ${r.claim}${r.evidence ? ` _(${r.evidence})_` : ""}`);
+  } else if (review.dropped.risks > 0) {
+    // Not "none found": the model raised something and it failed verification.
+    L.push(`_The model raised ${review.dropped.risks} possible issue(s) that could not be tied to a changed line in the diff, so none are shown. This is not a clean result; review the change by hand._`);
   } else {
     L.push("_None found that could be tied to a specific changed line._");
   }

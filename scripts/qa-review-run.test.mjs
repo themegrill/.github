@@ -233,3 +233,42 @@ test("runReview applies the size limit from the shown files' changed lines", asy
   assert.equal(r.review.risks.length, 1);
   assert.equal(r.review.scenarios.length, 1);
 });
+
+test("discard reasons are recorded, and an all-dropped risk list is not reported as clean", () => {
+  const r = validateReview(
+    {
+      summary: "s",
+      risks: [
+        { file: "nope.php", line: 1, claim: "c" },
+        { file: "includes/a.php", line: 10, claim: "context line" },
+        { file: "includes/a.php", line: "x", claim: "c" },
+      ],
+      manual_tests: [{ title: "Invented" }],
+    },
+    CTX
+  );
+  assert.deepEqual(r.detail.map((d) => d.why), ["file-not-in-shown-diff", "line-not-an-added-line", "line-not-an-integer", "title-not-in-index"]);
+  assert.deepEqual(r.detail[1].addedRange, [11, 12, 2]); // lets us see the model was near the real lines
+  const body = renderComment({
+    review: r,
+    facts: { headSha: SHA, areas: {}, unmapped: [], checks: [], shown: [], omitted: [], noPatch: [], testsTouched: [], qaDataPresent: true, usage: null, model: "m" },
+  });
+  assert.match(body, /raised 3 possible issue\(s\) that could not be tied/);
+  assert.ok(!body.includes("None found"));
+});
+
+test("runReview prints discard details only for explicitly public repos", async () => {
+  const bad = async () => ({ data: { summary: "s", risks: [{ file: "includes/a.php", line: 999, claim: "c" }] }, usage: {} });
+  const withRepo = (repo) => fakeReader({ getPr: async () => ({ title: "T", body: "", head: { sha: SHA }, base: { ref: "develop", repo } }) });
+  const logs = [];
+  const orig = console.log;
+  console.log = (m) => logs.push(String(m));
+  try {
+    await runReview(args({ chat: bad, reader: withRepo({ private: true }) }));
+    assert.equal(logs.filter((l) => l.startsWith("Discarded")).length, 0);
+    await runReview(args({ chat: bad, reader: withRepo({ private: false }) }));
+    assert.equal(logs.filter((l) => l.startsWith("Discarded")).length, 1);
+  } finally {
+    console.log = orig;
+  }
+});

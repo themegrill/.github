@@ -85,6 +85,8 @@ export async function runReview({ repo, prNumber, expectedSha, reader, chat, sys
   // Fail safe: only an explicit `false` counts as public. The review is analysis
   // of the repo's code, and this workflow's own run summary/logs are public.
   const isPrivate = pr.base?.repo?.private !== false;
+  // Discard reasons quote model/PR-derived text: public repos only, never private.
+  if (!isPrivate && review.detail.length) console.log(`Discarded suggestions: ${JSON.stringify(review.detail)}`);
   return { body, review, usage, isPrivate, changedLines };
 }
 
