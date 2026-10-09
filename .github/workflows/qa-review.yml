@@ -49,6 +49,13 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  QA_REPO: ${{ github.event.client_payload.repo || inputs.repo }}
+  QA_PR: ${{ github.event.client_payload.pr || inputs.pr }}
+  # For a manual run the requester is whoever clicked "Run workflow".
+  QA_REQUESTER: ${{ github.event.client_payload.requester || github.actor }}
+  POST_COMMENT: ${{ github.event_name == 'repository_dispatch' || inputs.post_comment }}
+
 jobs:
   gate:
     name: Gate
@@ -57,12 +64,8 @@ jobs:
       allowed: ${{ steps.gate.outputs.allowed }}
       head_sha: ${{ steps.gate.outputs.head_sha }}
     env:
-      QA_REPO: ${{ github.event.client_payload.repo || inputs.repo }}
-      QA_PR: ${{ github.event.client_payload.pr || inputs.pr }}
+      # What the requester SAW; the gate refuses if the PR head has moved on.
       QA_HEAD_SHA: ${{ github.event.client_payload.head_sha || inputs.head_sha }}
-      # For a manual run the requester is whoever clicked "Run workflow".
-      QA_REQUESTER: ${{ github.event.client_payload.requester || github.actor }}
-      POST_COMMENT: ${{ github.event_name == 'repository_dispatch' || inputs.post_comment }}
       # Each PAT is scoped to one org; the scripts pick by the repo's owner.
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       BOT_TOKEN_THEMEGRILL: ${{ secrets.BOT_TOKEN_THEMEGRILL }}
@@ -102,17 +105,62 @@ jobs:
           printf '%s\n' "QA review not started: $REASON" > body.md
           node scripts/qa-review-comment.mjs "$QA_REPO" "$QA_PR" body.md
 
-      # Placeholder until the static + LLM jobs exist (next step). Deliberately
-      # says so: a pilot PR must not look like it got a real review.
-      - name: Acknowledge the request
-        if: steps.gate.outputs.allowed == 'true' && env.POST_COMMENT == 'true'
-        env:
-          HEAD_SHA: ${{ steps.gate.outputs.head_sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  # Read-only review: never checks out or runs PR code, only reads the diff and
+  # the product's .themegrill-qa/ data through the API (see qa-review-run.mjs),
+  # so it is safe for this job to hold the OpenAI key and the bot tokens.
+  # Complements, does not replace, the repo's own PHPCS / security / claudegrill
+  # E2E checks: it reads their results and does not re-run them.
+  review:
+    name: Review
+    needs: gate
+    if: needs.gate.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      QA_HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
+      QA_BODY_OUT: ${{ github.workspace }}/qa-review-body.md
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      BOT_TOKEN_THEMEGRILL: ${{ secrets.BOT_TOKEN_THEMEGRILL }}
+      # openai-client.mjs reads these two names.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CLASSIFY_MODEL: ${{ vars.QA_REVIEW_MODEL || 'gpt-5.4-mini' }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Feedback for the reviewer right away: a dispatch run is otherwise
+      # invisible from the PR. Replaced in place by the result below.
+      - name: Post "in progress" comment
+        if: env.POST_COMMENT == 'true'
         run: |
           printf '%s\n' \
-            "**QA review requested** by @$QA_REQUESTER for \`${HEAD_SHA:0:7}\`." \
-            "" \
-            "Request accepted. The review pipeline is not wired up yet, so no findings will follow. Run: $RUN_URL" \
-            > body.md
-          node scripts/qa-review-comment.mjs "$QA_REPO" "$QA_PR" body.md
+            "**QA review started** by @$QA_REQUESTER for \`${QA_HEAD_SHA:0:7}\`. Results will replace this comment. Run: $RUN_URL" \
+            > progress.md
+          node scripts/qa-review-comment.mjs "$QA_REPO" "$QA_PR" progress.md
+
+      - name: Review
+        id: review
+        run: node scripts/qa-review-run.mjs
+
+      # Always visible in the run, so a dry run (post_comment=false) is still reviewable.
+      - name: Show result in the run summary
+        if: steps.review.outcome == 'success'
+        run: cat "$QA_BODY_OUT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post result
+        if: steps.review.outcome == 'success' && env.POST_COMMENT == 'true'
+        run: node scripts/qa-review-comment.mjs "$QA_REPO" "$QA_PR" "$QA_BODY_OUT"
+
+      # Don't leave "started" hanging forever. Static text only: no model or
+      # PR-controlled content goes into a failure notice.
+      - name: Replace "in progress" with a failure notice
+        if: failure() && env.POST_COMMENT == 'true'
+        run: |
+          printf '%s\n' \
+            "**QA review failed** for \`${QA_HEAD_SHA:0:7}\`. No findings were produced. Details: $RUN_URL" \
+            > failed.md
+          node scripts/qa-review-comment.mjs "$QA_REPO" "$QA_PR" failed.md

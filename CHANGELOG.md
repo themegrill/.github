@@ -2,6 +2,16 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-09 — QA review: advisory review job (step 2), scoped to complement existing checks
+
+Found while inspecting the pilot repo (`user-registration-pro`): it already has PHPCS-on-PR (`pr-code-sniff.yml`), an AI security scan (`security-review.yml`), and `ThemeGrill/claudegrill`'s deterministic E2E suite with `.themegrill-qa/` test cases and knowledge. claudegrill's README says AI was deliberately removed from the PR path. So the original plan (own static tools + droplet WordPress sandbox) would have duplicated all of that, and was dropped for now. This bot is opt-in only (someone must request `tg-autopilot` as reviewer) and is scoped to what those checks don't do.
+
+- New `review` job in `qa-review.yml`, after the gate. It never checks out or runs PR code: it reads the diff and the base branch's `.themegrill-qa/` (`suite.json` area map, `testcase-index.json` titles, `knowledge.md`) through the API, plus the other checks' results, and makes ONE model call (`prompts/qa-review.md`, default `gpt-5.4-mini`, override with the `QA_REVIEW_MODEL` repo variable).
+- Output is one sticky advisory comment: summary, areas touched (deterministic, from `suite.json`), risks, existing test cases worth running by hand, and scenarios with no test case.
+- Findings are verified, not trusted (see the CHANGELOG 2026-10-05 note on uncalibrated confidence): a risk is shown only if its `file:line` is an ADDED line in the diff; a suggested test only if its title exists verbatim in the index. Everything else is dropped and counted in the comment footer. No confidence number is shown. Model output is stripped of URLs, `@mentions`, HTML and backticks. An unparseable or empty model answer fails the job instead of posting "no risks found".
+- Not verified yet against a real model call: output quality, and cost (`pricing.mjs` has no row for the default model, so cost shows only if you add one). Uses the shared `OPENAI_API_KEY`; a dedicated spend-capped key is advisable before n8n makes this fire automatically.
+- Still manual dispatch only; no n8n flow or org webhook yet.
+
 ## 2026-10-09 — QA review: gate only (step 1 of a staged build, not a review yet)
 
 First piece of a PR QA-review agent (request `tg-autopilot` as reviewer -> deep review). This change adds only the front half: `qa-review.yml` (`repository_dispatch: qa-review` or manual `workflow_dispatch`), `scripts/qa-review-gate.mjs` and `config/qa-review-repos.json` (allowlist; pilot is `themegrill/user-registration-pro` only).
