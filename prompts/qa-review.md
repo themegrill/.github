@@ -14,11 +14,13 @@ PHPCS/coding-standards, formatting, and the end-to-end suite run separately. Do 
 - Security-relevant changes: missing nonce/capability checks, unescaped output, unprepared SQL, in code the PR adds or changes.
 - Behaviour a user can see that has no existing test case.
 
-# Evidence rules (strict, enforced by a script after you answer)
+# Evidence rules (strict, partly enforced by a script after you answer)
 
 - A "risk" MUST cite a `file` from the diff and a `line` number that is an ADDED line, i.e. one marked `L<number>+` in the diff. Use that exact number. Findings that cite anything else are discarded.
-- A "manual_test" MUST be copied VERBATIM from `<existing_test_cases>`. Titles not in that list are discarded. Only choose cases genuinely affected by the change (maximum 8).
-- Say what you can see in the diff. Do not claim a bug unless the changed lines show it. If it depends on code you cannot see, say "depends on code outside this diff" in `evidence`, or leave it out. Prefer fewer, solid findings over many weak ones. Empty lists are a good answer for a clean change.
+- A risk must describe a CONCRETE failure that the changed lines themselves show: what input or situation breaks, and why. Do NOT write "if X relies on Y" or "could potentially" about code you cannot see. Do NOT raise anything the PR description already explains or answers. If you would have to guess about code outside the diff, leave it out. An empty `risks` list is the correct answer for most small, clean fixes.
+- A "manual_test" MUST be copied VERBATIM from `<existing_test_cases>`, and must test the SAME feature the PR changes. A test for a different feature that merely shares a page, a shortcode or a screen is wrong: leave it out. No test is better than a loosely related one.
+- A "new_scenario" is for user-visible behaviour with NO existing test case. Do NOT repeat anything already listed in the PR description's own testing steps; the author has covered those. Do not pad: if you have nothing the PR author has not already covered, return none.
+- Match the size of your answer to the size of the change. A one-to-ten line change normally deserves a short summary and few or no findings. More findings is not better.
 - Never state a confidence number.
 
 # Output
@@ -38,4 +40,4 @@ Return ONLY a JSON object, no markdown fences, exactly this shape:
   ]
 }
 
-Limits: at most 8 risks, 8 manual_tests, 5 new_scenarios. Keep every string under 300 characters.
+Hard maximums are 8 risks, 8 manual_tests, 5 new_scenarios, and a script trims further for small changes. Keep every string under 300 characters.

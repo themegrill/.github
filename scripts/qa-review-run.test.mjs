@@ -197,3 +197,39 @@ test("renderComment output never contains the sticky marker (only the poster add
   });
   assert.ok(!body.includes(MARKER));
 });
+
+test("limitsFor scales with change size; validateReview enforces it", async () => {
+  const { limitsFor } = await import("./qa-review-render.mjs");
+  assert.deepEqual(limitsFor(1), { risks: 1, manual: 2, scenarios: 1 });
+  assert.deepEqual(limitsFor(10), { risks: 1, manual: 2, scenarios: 1 });
+  assert.deepEqual(limitsFor(11), { risks: 3, manual: 4, scenarios: 2 });
+  assert.deepEqual(limitsFor(61), { risks: 5, manual: 6, scenarios: 3 });
+  assert.deepEqual(limitsFor(5000), { risks: 8, manual: 8, scenarios: 5 });
+
+  const many = {
+    summary: "s",
+    risks: [11, 12].map((line) => ({ file: "includes/a.php", line, claim: `c${line}` })),
+    manual_tests: [{ title: "Verify login" }, { title: "Verify login" }],
+    new_scenarios: [{ scenario: "a" }, { scenario: "b" }, { scenario: "c" }],
+  };
+  const tiny = validateReview(many, { ...CTX, limits: limitsFor(1) });
+  assert.deepEqual([tiny.risks.length, tiny.manual.length, tiny.scenarios.length], [1, 1, 1]);
+  const none = validateReview(many, CTX); // no limits given => generous defaults
+  assert.deepEqual([none.risks.length, none.scenarios.length], [2, 3]);
+});
+
+test("runReview applies the size limit from the shown files' changed lines", async () => {
+  const chat = async () => ({
+    data: {
+      summary: "s",
+      risks: [11, 12].map((line) => ({ file: "includes/a.php", line, claim: `c${line}` })),
+      manual_tests: [],
+      new_scenarios: [{ scenario: "a" }, { scenario: "b" }, { scenario: "c" }],
+    },
+    usage: {},
+  });
+  const r = await runReview(args({ chat, reader: fakeReader({ listFiles: async () => [{ filename: "includes/a.php", status: "modified", patch: PATCH, additions: 2, deletions: 1 }] }) }));
+  assert.equal(r.changedLines, 3);
+  assert.equal(r.review.risks.length, 1);
+  assert.equal(r.review.scenarios.length, 1);
+});

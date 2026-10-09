@@ -27,9 +27,20 @@ export function sanitize(value, max = 300) {
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
-// ctx: { addedByFile: {file: Set<line>}, titles: [{title,file}] }
+// How many findings a change of this size can plausibly justify. Enforced here
+// in code because a prompt-only limit was ignored: a ONE-line PR got 1 risk,
+// 1 test and 3 scenarios (user-registration-pro#1610 dry run).
+export function limitsFor(changedLines) {
+  if (changedLines <= 10) return { risks: 1, manual: 2, scenarios: 1 };
+  if (changedLines <= 60) return { risks: 3, manual: 4, scenarios: 2 };
+  if (changedLines <= 300) return { risks: 5, manual: 6, scenarios: 3 };
+  return { risks: 8, manual: 8, scenarios: 5 };
+}
+
+// ctx: { addedByFile: {file: Set<line>}, titles: [{title,file}], limits?: {risks,manual,scenarios} }
 export function validateReview(raw, ctx) {
   const data = raw && typeof raw === "object" ? raw : {};
+  const limits = ctx.limits ?? { risks: 8, manual: 8, scenarios: 5 };
   const known = new Map(ctx.titles.map((t) => [t.title.trim(), t]));
   const dropped = { risks: 0, manual_tests: 0, new_scenarios: 0 };
 
@@ -41,7 +52,7 @@ export function validateReview(raw, ctx) {
       dropped.risks++;
       continue;
     }
-    if (risks.length < 8) risks.push({ file: r.file, line, claim: sanitize(r.claim), evidence: sanitize(r.evidence) });
+    if (risks.length < limits.risks) risks.push({ file: r.file, line, claim: sanitize(r.claim), evidence: sanitize(r.evidence) });
   }
 
   const manual = [];
@@ -53,7 +64,7 @@ export function validateReview(raw, ctx) {
       continue;
     }
     seen.add(key);
-    if (manual.length < 8) manual.push({ title: key, file: known.get(key).file, why: sanitize(t.why) });
+    if (manual.length < limits.manual) manual.push({ title: key, file: known.get(key).file, why: sanitize(t.why) });
   }
 
   const scenarios = [];
@@ -62,7 +73,7 @@ export function validateReview(raw, ctx) {
       dropped.new_scenarios++;
       continue;
     }
-    if (scenarios.length < 5) scenarios.push({ scenario: sanitize(s.scenario), why: sanitize(s.why) });
+    if (scenarios.length < limits.scenarios) scenarios.push({ scenario: sanitize(s.scenario), why: sanitize(s.why) });
   }
 
   return { summary: sanitize(data.summary, 700), risks, manual, scenarios, dropped };
