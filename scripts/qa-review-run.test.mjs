@@ -175,6 +175,14 @@ test("unreadable check runs (403) degrade the section instead of failing the rev
   assert.match(body, /`includes\/a\.php:12`/); // the rest of the review is intact
 });
 
+test("isPrivate fails safe: only an explicit public repo is treated as public", async () => {
+  const withRepo = (repo) => fakeReader({ getPr: async () => ({ title: "T", body: "B", head: { sha: SHA }, base: { ref: "develop", repo } }) });
+  assert.equal((await runReview(args({ chat: goodModel, reader: withRepo({ private: false }) }))).isPrivate, false);
+  assert.equal((await runReview(args({ chat: goodModel, reader: withRepo({ private: true }) }))).isPrivate, true);
+  assert.equal((await runReview(args({ chat: goodModel, reader: withRepo(undefined) }))).isPrivate, true); // unknown => private
+  assert.equal((await runReview(args({ chat: goodModel }))).isPrivate, true); // fixture has no repo info
+});
+
 test("repo without .themegrill-qa data still reviews, and says so", async () => {
   const bare = fakeReader({ getTextAtRef: async () => null });
   const { body } = await runReview(args({ chat: goodModel, reader: bare }));

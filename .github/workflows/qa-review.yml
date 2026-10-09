@@ -146,10 +146,17 @@ jobs:
         id: review
         run: node scripts/qa-review-run.mjs
 
-      # Always visible in the run, so a dry run (post_comment=false) is still reviewable.
-      - name: Show result in the run summary
-        if: steps.review.outcome == 'success'
+      # THIS repo is public, so its run summaries and logs are public. A review
+      # of a private repo's code must never be written there; it is only posted
+      # to the PR itself (post_comment). Only an explicit "false" counts as public.
+      - name: Show result in the run summary (public target repos only)
+        if: steps.review.outcome == 'success' && steps.review.outputs.repo_private == 'false'
         run: cat "$QA_BODY_OUT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Note that the result is withheld from the run summary
+        if: steps.review.outcome == 'success' && steps.review.outputs.repo_private != 'false'
+        run: |
+          echo "Review generated but NOT shown here: the target repo is private (or its visibility is unknown) and this run's summary is public. Re-run with post_comment=true to post it on the PR." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post result
         if: steps.review.outcome == 'success' && env.POST_COMMENT == 'true'

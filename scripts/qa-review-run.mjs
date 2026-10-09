@@ -1,7 +1,7 @@
 // QA review runner: gather (read-only) -> ONE model call -> validate -> render.
 // Never checks out or executes PR code. Writes the comment body to a file; the
 // workflow decides whether to post it. Run only AFTER qa-review-gate.mjs allowed it.
-import { readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ghTokenForRepo } from "./github-client.mjs";
 import { chatJSONWithUsage } from "./openai-client.mjs";
@@ -80,7 +80,10 @@ export async function runReview({ repo, prNumber, expectedSha, reader, chat, sys
       model: usage?.model,
     },
   });
-  return { body, review, usage };
+  // Fail safe: only an explicit `false` counts as public. The review is analysis
+  // of the repo's code, and this workflow's own run summary/logs are public.
+  const isPrivate = pr.base?.repo?.private !== false;
+  return { body, review, usage, isPrivate };
 }
 
 async function main() {
@@ -98,6 +101,7 @@ async function main() {
     systemPrompt: readFileSync(new URL("../prompts/qa-review.md", import.meta.url), "utf8"),
   });
   writeFileSync(QA_BODY_OUT, out.body + "\n");
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `repo_private=${out.isPrivate}\n`);
   console.log(`Wrote ${QA_BODY_OUT}: ${out.review.risks.length} risks, ${out.review.manual.length} manual tests, ${out.review.scenarios.length} scenarios; dropped ${JSON.stringify(out.review.dropped)}; usage ${JSON.stringify(out.usage)}`);
 }
 

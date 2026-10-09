@@ -11,6 +11,8 @@ Found while inspecting the pilot repo (`user-registration-pro`): it already has 
 - Findings are verified, not trusted (see the CHANGELOG 2026-10-05 note on uncalibrated confidence): a risk is shown only if its `file:line` is an ADDED line in the diff; a suggested test only if its title exists verbatim in the index. Everything else is dropped and counted in the comment footer. No confidence number is shown. Model output is stripped of URLs, `@mentions`, HTML and backticks. An unparseable or empty model answer fails the job instead of posting "no risks found".
 - Not verified yet against a real model call: output quality, and cost (`pricing.mjs` has no row for the default model, so cost shows only if you add one). Uses the shared `OPENAI_API_KEY`; a dedicated spend-capped key is advisable before n8n makes this fire automatically.
 - Still manual dispatch only; no n8n flow or org webhook yet.
+- **Privacy:** `themegrill/.github` is PUBLIC, so run summaries/logs are public. The first dry run wrote a review of a private-repo PR into a public run summary (one-line change; the run was deleted). The review body now goes to the run summary only when the target repo is explicitly public; for private repos it is posted to the PR only (`post_comment=true`). Never log or summarize review content, PR text or diffs from private repos in this repo's runs.
+- The bot's fine-grained PAT cannot read check runs (403, needs "Checks: read"); that section is best-effort and says "not available" until the PAT is updated.
 
 ## 2026-10-09 — QA review: gate only (step 1 of a staged build, not a review yet)
 
