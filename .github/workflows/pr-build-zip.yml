@@ -490,6 +490,8 @@ jobs:
           body-path: comment-body.md
 
       - name: Run summary
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
         run: |
           {
             echo "### Build ZIP"
@@ -502,5 +504,8 @@ jobs:
             if [ -n "${{ steps.zip2.outputs.name }}" ]; then
               echo "| Extra ZIP | ${{ steps.zip2.outputs.name }} (${{ steps.zip2.outputs.size }}) |"
               echo "| Extra Download | ${{ steps.upload2.outputs.url }} |"
+            fi
+            if [ -n "$PREVIEW_URL" ]; then
+              echo "| Preview | [Open live test site]($PREVIEW_URL) |"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
