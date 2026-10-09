@@ -168,6 +168,13 @@ test("runReview refuses rather than posting a misleading review", async () => {
   await assert.rejects(runReview(args({ chat: goodModel, reader: onlyNoise })), /No reviewable diff/);
 });
 
+test("unreadable check runs (403) degrade the section instead of failing the review", async () => {
+  const noChecks = fakeReader({ listCheckRuns: async () => { throw new Error("403 Resource not accessible"); } });
+  const { body } = await runReview(args({ chat: goodModel, reader: noChecks }));
+  assert.match(body, /Other checks on this commit:\*\* not available/);
+  assert.match(body, /`includes\/a\.php:12`/); // the rest of the review is intact
+});
+
 test("repo without .themegrill-qa data still reviews, and says so", async () => {
   const bare = fakeReader({ getTextAtRef: async () => null });
   const { body } = await runReview(args({ chat: goodModel, reader: bare }));
