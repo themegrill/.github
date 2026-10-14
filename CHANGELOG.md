@@ -2,16 +2,12 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
-## 2026-10-14 — Crisp triage: stop re-investigating on support replies; dedupe skips dead threads
+## 2026-10-14 — Crisp triage: no re-investigation on support replies; dedupe skips quiet threads
 
-Two support-reported symptoms, each diagnosed from live Crisp metadata (types, roles, timestamps only, no content):
-
-- **`session_3931e910` re-investigated 7 times in 3 weeks.** Three of those (Sep 28, Oct 9, Oct 13) were triggered by a *support agent's* reply, not the customer; both that finished found `no_defect` and still posted a new note. The stale path treated any text message as "new activity". It now re-arms only on a new **customer** message (`shouldReclassifyStale`). The reopen path is unchanged: a reopen is itself a signal, and its delta still includes agent text.
-- **`session_f9e20b9b` matched to an open issue two months after support resolved it (Aug 14).** Crisp had it as `unresolved` again, with no new message or event, from at least the Sep 2 seed onward (the bot never touched it before Oct 13), so it was not our bot reopening it. `crisp-dedupe-active.mjs` had no freshness gate and matched it anyway. It now skips conversations whose newest customer message is older than 14 days (`DEDUPE_MAX_QUIET_DAYS`), judged from real message timestamps. Skipped conversations are not marked notified, so a new customer message re-evaluates them.
-- **`active.last` is absent, not frozen, on email-origin conversations.** The old `active.last ?? created_at` therefore measured age-since-creation (this is why the "stale 344h / 508h" log values all counted from Sep 22). The pre-fetch gate now takes the newest of `active.last` / `updated_at` / `created_at` as a hint only, and staleness is recomputed from real message timestamps once messages are fetched.
-- `updated_at` is bumped by this pipeline's own notes: never use it as proof a human did anything.
-- New pure helpers and tests: `scripts/crisp-activity.mjs`, `crisp-activity.test.mjs`. **Not tested:** the changed `main()` paths against live Crisp (not unit-testable as written). Watch the next few runs' `stale ...h` log lines and the dedupe step summary's new "Skipped" count.
-- Not changed: the reopen path, `seed-escalated.mjs` (it still stamps `checkedThroughAt` from all message types incl. events, which only ever makes it re-arm *later*), and the unresolved-state flip itself (cause not visible from the API).
+- **Stale check re-arms only on a new customer message.** A support reply re-investigated `session_3931e910` three times, and the two runs that finished found `no_defect`. The reopen path is unchanged.
+- **Dedupe skips threads with no customer message in 14 days.** `session_f9e20b9b` was resolved Aug 14, was `unresolved` again by Sep 2 for a reason the API doesn't show, and was matched to an open issue in October.
+- **Staleness now comes from real message timestamps.** `active.last` is missing on email threads, so the old `active.last ?? created_at` counted age since creation.
+- Not tested against live Crisp. After merge, check the `stale ...h` log lines and the dedupe step summary's new "Skipped" count.
 
 ## 2026-10-09 — PR build zip: optional "Try this PR in a live test site" link
 
