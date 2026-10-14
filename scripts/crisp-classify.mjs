@@ -18,6 +18,12 @@ import {
   credsForAccount,
 } from "./crisp-client.mjs";
 import { classifyAndRoute } from "./crisp-classifier.mjs";
+import {
+  newestTextTimestamp,
+  conversationActivityHint,
+  shouldReclassifyStale,
+  nextCheckedThroughAt,
+} from "./crisp-activity.mjs";
 import { emitEvent } from "./events.mjs";
 
 const { GITHUB_STEP_SUMMARY } = process.env;
@@ -61,16 +67,14 @@ function transcriptFrom(messages) {
     .join("\n");
 }
 
-// Newest timestamp among real conversation messages only (customer/agent
-// text). Private notes -- including this pipeline's own "Investigation
-// report" notes -- and event messages are excluded: Stage 2 posts its note
-// AFTER Stage 1 stamps the marker, so counting notes made every investigation
-// look like "new activity" on the next run and re-investigated the same
-// conversation every few hours (confirmed on session_bd0acc7b). Only the
-// automatic stale/reopen paths use this; manual-note branches are unchanged.
-function newestTextTimestamp(messages, floor = 0) {
-  return messages.reduce((max, m) => (m.type === "text" ? Math.max(max, m.timestamp ?? 0) : max), floor);
-}
+// newestTextTimestamp (crisp-activity.mjs) counts real conversation text only
+// (customer/agent). Private notes -- including this pipeline's own
+// "Investigation report" notes -- and event messages are excluded: Stage 2
+// posts its note AFTER Stage 1 stamps the marker, so counting notes made every
+// investigation look like "new activity" on the next run and re-investigated
+// the same conversation every few hours (confirmed on session_bd0acc7b). The
+// reopen path uses it as-is. The stale path goes further and only re-arms on a
+// new CUSTOMER message (shouldReclassifyStale) -- see crisp-activity.mjs.
 
 // A rate-limit failure (crispFetch already retried and gave up) on ONE session
 // shouldn't kill the whole run -- that skips "Commit advanced state" and
@@ -180,8 +184,8 @@ async function main() {
     const lastCheckedMs = new Date(cursor.last_checked).getTime();
     const activeConversations = await fetchActiveConversations(creds);
     activeConversations.forEach((conversation) => {
-      const lastActiveAt = conversation.active?.last ?? conversation.created_at;
-      conversation._checkManualNote = lastActiveAt > lastCheckedMs;
+      // Metadata hint only: `active.last` is absent on email-origin threads.
+      conversation._checkManualNote = conversationActivityHint(conversation) > lastCheckedMs;
     });
 
     // Search directly for the trigger phrase too, in case the page cap buries it.
@@ -198,22 +202,20 @@ async function main() {
       const record = escalated[conversation.session_id] ?? { manualNoteCount: 0 };
       const previousResolveAt = resolvedSeen[conversation.session_id];
 
-      // active.last, not created_at, so a reopened thread isn't read as ancient.
-      // NOTE: active.last (and even updated_at) can lag behind real message
-      // activity, especially for email-origin conversations -- confirmed for
-      // real (session_bd0acc7b showed live replies well after both fields
-      // had stopped moving). So this is only used to decide whether it's
-      // worth fetching messages at all, never as the final word on
-      // freshness -- see checkedThroughAt below, which is timestamped from
-      // the actual fetched messages instead.
-      const lastActiveAt = conversation.active?.last ?? conversation.created_at;
-      const staleHours = (Date.now() - lastActiveAt) / (1000 * 60 * 60);
-      const eligibleForAutoEscalate = staleHours >= AUTO_ESCALATE_HOURS && staleHours <= AUTO_ESCALATE_MAX_HOURS;
+      // Pre-fetch HINT only: decides whether it's worth fetching messages at
+      // all. `active.last` is ABSENT on email-origin conversations (confirmed
+      // for real on session_3931e910 / session_f9e20b9b -- the old
+      // `active.last ?? created_at` silently measured age-since-creation), and
+      // metadata can lag real message activity (session_bd0acc7b), so this
+      // takes the newest of every field that exists and is re-checked against
+      // the real fetched messages below before anything is acted on.
+      const hintStaleHours = (Date.now() - conversationActivityHint(conversation)) / (1000 * 60 * 60);
+      const hintEligibleForAutoEscalate = hintStaleHours >= AUTO_ESCALATE_HOURS && hintStaleHours <= AUTO_ESCALATE_MAX_HOURS;
 
       // Seen resolved before, active again now -- a reopen.
       const isReopen = previousResolveAt !== undefined;
 
-      if (!conversation._checkManualNote && !eligibleForAutoEscalate && !isReopen) continue;
+      if (!conversation._checkManualNote && !hintEligibleForAutoEscalate && !isReopen) continue;
 
       // On skip, nothing is recorded for this session, so the next run
       // re-evaluates it from scratch.
@@ -221,6 +223,15 @@ async function main() {
       if (messages === null) continue;
       const manualNoteCount = conversation._checkManualNote ? countManualTriggerNotes(messages) : record.manualNoteCount;
       const hasNewManualNote = manualNoteCount > record.manualNoteCount;
+
+      // Authoritative staleness: time since the newest real customer/agent
+      // text (notes and events excluded -- our own notes bump `updated_at`).
+      // Falls back to the metadata hint only if the thread has no text at all.
+      const newestRealTextAt = newestTextTimestamp(messages);
+      const staleHours = newestRealTextAt > 0
+        ? (Date.now() - newestRealTextAt) / (1000 * 60 * 60)
+        : hintStaleHours;
+      const eligibleForAutoEscalate = staleHours >= AUTO_ESCALATE_HOURS && staleHours <= AUTO_ESCALATE_MAX_HOURS;
 
       if (!hasNewManualNote && !eligibleForAutoEscalate && !isReopen) continue;
 
@@ -290,11 +301,14 @@ async function main() {
         // up, but can never be blocked forever the way a permanent
         // already-investigated flag was (confirmed for real: session_2fc63232
         // stayed stuck across repeated resolve/reopen cycles).
-        const newestMessageAt = newestTextTimestamp(messages);
-        if (record.checkedThroughAt === undefined || newestMessageAt > record.checkedThroughAt) {
+        //
+        // Re-arms only on a new CUSTOMER message, not a support reply: agent
+        // replies re-investigated (and re-noted) an already-triaged thread
+        // twice with no_defect both times (confirmed on session_3931e910).
+        if (shouldReclassifyStale(messages, record.checkedThroughAt)) {
           const result = await classifyAndRoute(accountConfig, conversation, transcript);
           recordScan("stale", accountKey, conversation.session_id, result);
-          record.checkedThroughAt = newestMessageAt;
+          record.checkedThroughAt = nextCheckedThroughAt(messages, record.checkedThroughAt);
           if (result.repo && result.actionable && result.kind !== "none") {
             matrix.push({ session_id: conversation.session_id, repo: result.repo, kind: result.kind, account: accountKey });
             investigated.add(conversation.session_id);

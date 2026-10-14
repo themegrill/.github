@@ -8,11 +8,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import {
   fetchActiveConversations,
   getInboxKey,
-  fetchTranscript,
+  fetchRawMessages,
   postNote,
   credsForAccount,
   conversationUrl,
 } from "./crisp-client.mjs";
+import { isCustomerQuiet, DEDUPE_MAX_QUIET_DAYS } from "./crisp-activity.mjs";
 import { chatJSON } from "./openai-client.mjs";
 import { listOpenIssues, listIssueComments, commentOnIssue } from "./github-client.mjs";
 
@@ -97,6 +98,7 @@ async function main() {
 
   let checked = 0;
   let matched = 0;
+  let skippedQuiet = 0;
 
   for (const [accountKey, accountConfig] of Object.entries(accounts)) {
     let creds;
@@ -115,8 +117,24 @@ async function main() {
       if (escalatedThisRun.has(conversation.session_id)) continue;
       checked++;
 
-      const transcript = await fetchTranscript(creds, conversation.session_id);
+      const messages = await fetchRawMessages(creds, conversation.session_id);
+      const transcript = messages
+        .filter((m) => m.type === "text")
+        .map((m) => `${m.from === "user" ? "Customer" : "Agent"}: ${m.content}`)
+        .join("\n");
       if (!transcript.trim()) continue;
+
+      // Freshness gate, from real message timestamps. Crisp's "unresolved"
+      // state alone is not evidence of a live problem: session_f9e20b9b was
+      // resolved by support on Aug 14, silently came back as unresolved with
+      // no new message, and was matched to an open issue two months later.
+      // Not added to `notified`, so a fresh customer message re-evaluates it.
+      // Never use active.last (absent on email threads) or updated_at (bumped
+      // by this script's own notes) for this.
+      if (isCustomerQuiet(messages)) {
+        skippedQuiet++;
+        continue;
+      }
 
       const repo = await resolveRepo(accountConfig, transcript, conversation);
       if (!repo) continue;
@@ -175,7 +193,7 @@ async function main() {
   if (GITHUB_STEP_SUMMARY) {
     await writeFile(
       GITHUB_STEP_SUMMARY,
-      `### Crisp triage — active-conversation dedupe check\n\nChecked: ${checked} · Matched: ${matched}\n`,
+      `### Crisp triage — active-conversation dedupe check\n\nChecked: ${checked} · Matched: ${matched} · Skipped (no customer message in ${DEDUPE_MAX_QUIET_DAYS}d): ${skippedQuiet}\n`,
       { flag: "a" }
     );
   }
