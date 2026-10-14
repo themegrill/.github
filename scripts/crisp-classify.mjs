@@ -67,14 +67,9 @@ function transcriptFrom(messages) {
     .join("\n");
 }
 
-// newestTextTimestamp (crisp-activity.mjs) counts real conversation text only
-// (customer/agent). Private notes -- including this pipeline's own
-// "Investigation report" notes -- and event messages are excluded: Stage 2
-// posts its note AFTER Stage 1 stamps the marker, so counting notes made every
-// investigation look like "new activity" on the next run and re-investigated
-// the same conversation every few hours (confirmed on session_bd0acc7b). The
-// reopen path uses it as-is. The stale path goes further and only re-arms on a
-// new CUSTOMER message (shouldReclassifyStale) -- see crisp-activity.mjs.
+// newestTextTimestamp excludes notes, including our own: counting them made every
+// investigation look like new activity (session_bd0acc7b). The stale path also
+// re-arms only on customer messages (see crisp-activity.mjs).
 
 // A rate-limit failure (crispFetch already retried and gave up) on ONE session
 // shouldn't kill the whole run -- that skips "Commit advanced state" and
@@ -202,13 +197,9 @@ async function main() {
       const record = escalated[conversation.session_id] ?? { manualNoteCount: 0 };
       const previousResolveAt = resolvedSeen[conversation.session_id];
 
-      // Pre-fetch HINT only: decides whether it's worth fetching messages at
-      // all. `active.last` is ABSENT on email-origin conversations (confirmed
-      // for real on session_3931e910 / session_f9e20b9b -- the old
-      // `active.last ?? created_at` silently measured age-since-creation), and
-      // metadata can lag real message activity (session_bd0acc7b), so this
-      // takes the newest of every field that exists and is re-checked against
-      // the real fetched messages below before anything is acted on.
+      // Pre-fetch hint only. `active.last` is absent on email threads, and metadata
+      // can lag real activity (session_bd0acc7b), so staleness is re-checked
+      // against the fetched messages below.
       const hintStaleHours = (Date.now() - conversationActivityHint(conversation)) / (1000 * 60 * 60);
       const hintEligibleForAutoEscalate = hintStaleHours >= AUTO_ESCALATE_HOURS && hintStaleHours <= AUTO_ESCALATE_MAX_HOURS;
 
@@ -224,9 +215,8 @@ async function main() {
       const manualNoteCount = conversation._checkManualNote ? countManualTriggerNotes(messages) : record.manualNoteCount;
       const hasNewManualNote = manualNoteCount > record.manualNoteCount;
 
-      // Authoritative staleness: time since the newest real customer/agent
-      // text (notes and events excluded -- our own notes bump `updated_at`).
-      // Falls back to the metadata hint only if the thread has no text at all.
+      // Authoritative staleness: time since the newest real text (notes excluded,
+      // since ours bump `updated_at`). Falls back to the hint if there is no text.
       const newestRealTextAt = newestTextTimestamp(messages);
       const staleHours = newestRealTextAt > 0
         ? (Date.now() - newestRealTextAt) / (1000 * 60 * 60)
@@ -301,10 +291,8 @@ async function main() {
         // up, but can never be blocked forever the way a permanent
         // already-investigated flag was (confirmed for real: session_2fc63232
         // stayed stuck across repeated resolve/reopen cycles).
-        //
-        // Re-arms only on a new CUSTOMER message, not a support reply: agent
-        // replies re-investigated (and re-noted) an already-triaged thread
-        // twice with no_defect both times (confirmed on session_3931e910).
+        // Re-arms only on a new customer message: support replies re-investigated
+        // an already-triaged thread twice with no_defect (session_3931e910).
         if (shouldReclassifyStale(messages, record.checkedThroughAt)) {
           const result = await classifyAndRoute(accountConfig, conversation, transcript);
           recordScan("stale", accountKey, conversation.session_id, result);

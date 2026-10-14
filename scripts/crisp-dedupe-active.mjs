@@ -124,13 +124,9 @@ async function main() {
         .join("\n");
       if (!transcript.trim()) continue;
 
-      // Freshness gate, from real message timestamps. Crisp's "unresolved"
-      // state alone is not evidence of a live problem: session_f9e20b9b was
-      // resolved by support on Aug 14, silently came back as unresolved with
-      // no new message, and was matched to an open issue two months later.
-      // Not added to `notified`, so a fresh customer message re-evaluates it.
-      // Never use active.last (absent on email threads) or updated_at (bumped
-      // by this script's own notes) for this.
+      // Skip threads the customer went quiet on (session_f9e20b9b was matched two
+      // months after it was resolved). Not marked notified, so a new customer
+      // message re-evaluates it.
       if (isCustomerQuiet(messages)) {
         skippedQuiet++;
         continue;
