@@ -2,6 +2,13 @@
 
 Short, dated summary of notable fixes and changes. For the full "why," see `PHASE2-SETUP.md` (Crisp triage design) or the linked PRs.
 
+## 2026-10-14 — Crisp triage: no re-investigation on support replies; dedupe skips quiet threads
+
+- **Stale check re-arms only on a new customer message.** A support reply re-investigated `session_3931e910` three times, and the two runs that finished found `no_defect`. The reopen path is unchanged.
+- **Dedupe skips threads with no customer message in 14 days.** `session_f9e20b9b` was resolved Aug 14, was `unresolved` again by Sep 2 for a reason the API doesn't show, and was matched to an open issue in October.
+- **Staleness now comes from real message timestamps.** `active.last` is missing on email threads, so the old `active.last ?? created_at` counted age since creation.
+- Not tested against live Crisp. After merge, check the `stale ...h` log lines and the dedupe step summary's new "Skipped" count.
+
 ## 2026-10-09 — PR build zip: optional "Try this PR in a live test site" link
 
 For QA and for support reproducing issues: the PR build comment can now include a link that opens a fresh WordPress (Playground, in the browser) with that build installed, logged in as admin. No install, nothing to clean up.
