@@ -1,5 +1,8 @@
 {
   "themegrill/user-registration": {
     "type": "plugin"
+  },
+  "themegrill/everest-forms": {
+    "type": "plugin"
   }
 }
