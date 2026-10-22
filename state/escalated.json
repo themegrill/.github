@@ -1217,7 +1217,7 @@
   "session_a1cb13e9-8c6e-483a-9972-4294f7c265dc": {
     "autoEscalated": true,
     "manualNoteCount": 0,
-    "checkedThroughAt": 1791165652710
+    "checkedThroughAt": 1792575925508
   },
   "session_262c9419-b2b3-4482-8840-840e07beea4e": {
     "autoEscalated": true,
@@ -5025,7 +5025,7 @@
   },
   "session_eea481e5-967a-4f06-bc2a-686885c5b8c8": {
     "manualNoteCount": 0,
-    "checkedThroughAt": 1791521387987
+    "checkedThroughAt": 1792598020244
   },
   "session_2b081ce3-f92a-4e5d-a6cd-d261021380be": {
     "manualNoteCount": 0,
@@ -5385,7 +5385,7 @@
   },
   "session_1fca4ffd-abb3-482b-9dfb-72a874f276b2": {
     "manualNoteCount": 0,
-    "checkedThroughAt": 1792480779162
+    "checkedThroughAt": 1792641848553
   },
   "session_1a267623-54f9-49b9-91a5-8cbdec30f1e9": {
     "manualNoteCount": 0,
@@ -5430,5 +5430,17 @@
   "session_91a67be0-452d-4908-8317-27a775124f48": {
     "manualNoteCount": 0,
     "checkedThroughAt": 1792568147288
+  },
+  "session_734c43b8-3911-4a69-869a-865260ae2c79": {
+    "manualNoteCount": 0,
+    "checkedThroughAt": 1792600326804
+  },
+  "session_e5f2cf56-113b-4eb8-8714-47884efd4e40": {
+    "manualNoteCount": 0,
+    "checkedThroughAt": 1792573533741
+  },
+  "session_7ee3c433-833d-4f73-9cec-dffecdbf5086": {
+    "manualNoteCount": 0,
+    "checkedThroughAt": 1792589151246
   }
 }
