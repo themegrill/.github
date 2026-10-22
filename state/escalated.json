@@ -3860,7 +3860,7 @@
   "session_683c6fd7-2b0c-4447-b50d-b3e9f848141a": {
     "autoEscalated": true,
     "manualNoteCount": 0,
-    "checkedThroughAt": 1790763278559
+    "checkedThroughAt": 1792658100515
   },
   "session_81add824-c967-4a11-b1ba-db0d647b0068": {
     "autoEscalated": true,
@@ -5454,5 +5454,13 @@
   "session_3a075684-9fc3-493a-a606-6035db261113": {
     "manualNoteCount": 0,
     "checkedThroughAt": 1792592738120
+  },
+  "session_62ee1917-ff02-4783-9898-a9670e1b75c0": {
+    "manualNoteCount": 0,
+    "checkedThroughAt": 1792624820976
+  },
+  "session_f8c68f6a-3e7c-4323-b176-e0f3380208e7": {
+    "manualNoteCount": 0,
+    "checkedThroughAt": 1792664789906
   }
 }
